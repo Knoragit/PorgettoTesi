@@ -1,0 +1,360 @@
+using UnityEngine;
+using System.Collections.Generic;
+using TMPro;
+
+public class PianoVisualizer : MonoBehaviour
+{
+    private class NoteState
+    {
+        public GameObject rootObject;     // Contenitore neutro (Scala 1:1)
+        public GameObject columnObject;   // Colonna mesh (si ridimensiona)
+        public GameObject textObject;     // Etichetta testo (proporzionata)
+        public float currentHeight;
+        public bool isPressed;
+        public bool isLeftHand;
+        public float releaseTimer;
+        public Material columnMaterial;
+    }
+
+    private Dictionary<int, NoteState> activeNotes = new Dictionary<int, NoteState>();
+    private const float LARGHEZZA_TASTO_BIANCO = 0.0235f;
+    private const int NOTA_INIZIALE_MIDI = 21; // La0 (A0)
+
+    private readonly int[] whiteKeyOffsets = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
+
+    private Dictionary<int, GameObject> expectedVisualObjects = new Dictionary<int, GameObject>();
+
+    [Header("Riferimenti Tracciamento Mani Meta")]
+    public Transform leftHandTransform;
+    public Transform rightHandTransform;
+
+    [Header("Filo Articolazione Morbido")]
+    private LineRenderer leftLineRenderer;
+    private LineRenderer rightLineRenderer;
+    public int risoluzioneCurva = 12;
+    public float frecciaCurvaturaGravita = 0.05f;
+
+    [Header("Parametri di Decadimento Temporale")]
+    public float durataDecadimentoRilascio = 1.0f;
+
+    [Header("Mesh Colonna")]
+    public Mesh columnMesh;
+
+    [Header("Impostazioni Nomi Note")]
+    public bool usaNotazioneItaliana = true; // true = Do, Re, Mi | false = C, D, E
+
+    private List<int> noteFiltrateId = new List<int>();
+    private List<Vector3> puntiControllo = new List<Vector3>();
+    private List<Vector3> splinePunti = new List<Vector3>();
+
+    void Start()
+    {
+        OVRCameraRig cameraRig = FindFirstObjectByType<OVRCameraRig>();
+        if (cameraRig != null)
+        {
+            leftHandTransform = cameraRig.leftHandAnchor;
+            rightHandTransform = cameraRig.rightHandAnchor;
+        }
+        InizializzaLineRenderers();
+    }
+
+    private void InizializzaLineRenderers()
+    {
+        leftLineRenderer = new GameObject("Linea_Morbida_Sinistra").AddComponent<LineRenderer>();
+        rightLineRenderer = new GameObject("Linea_Morbida_Destra").AddComponent<LineRenderer>();
+        ConfiguraLineRenderer(leftLineRenderer, Color.cyan);
+        ConfiguraLineRenderer(rightLineRenderer, Color.yellow);
+    }
+
+    private void ConfiguraLineRenderer(LineRenderer lr, Color c)
+    {
+        lr.startWidth = 0.004f; lr.endWidth = 0.004f;
+        lr.material = new Material(Shader.Find("Sprites/Default"));
+        lr.startColor = c; lr.endColor = c;
+        lr.useWorldSpace = true;
+    }
+
+    public void ResetVisualizer()
+    {
+        foreach (var kvp in activeNotes)
+        {
+            if (kvp.Value.rootObject != null)
+            {
+                Destroy(kvp.Value.rootObject);
+            }
+        }
+        activeNotes.Clear();
+        if (leftLineRenderer != null) leftLineRenderer.positionCount = 0;
+        if (rightLineRenderer != null) rightLineRenderer.positionCount = 0;
+        Debug.Log("[VISUALIZER] Schermo pulito e colonne azzerate.");
+    }
+
+    public void MostraNoteAttese(int[] notes)
+    {
+        PulisciNoteAtteseVisive();
+
+        if (notes == null) return;
+
+        foreach (int note in notes)
+        {
+            GameObject radiceGuida = new GameObject($"Guida_Nota_{note}");
+            radiceGuida.transform.SetParent(this.transform, false);
+            radiceGuida.transform.localPosition = new Vector3(CalcolaX(note), 0f, 0f);
+
+            GameObject colonnaGuida = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            if (columnMesh != null) colonnaGuida.GetComponent<MeshFilter>().mesh = columnMesh;
+            colonnaGuida.transform.SetParent(radiceGuida.transform, false);
+            Destroy(colonnaGuida.GetComponent<BoxCollider>());
+
+            Renderer r = colonnaGuida.GetComponent<Renderer>();
+
+            Material mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            mat.SetFloat("_Surface", 1);
+            mat.SetFloat("_Blend", 0);
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetInt("_ZWrite", 0);
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+
+            mat.color = new Color(0.0f, 1.0f, 0.35f, 0.15f);
+            r.material = mat;
+
+            float altezzaGuida = 0.15f;
+            float spessore = IsTastoNero(note) ? 0.009f : 0.016f;
+
+            colonnaGuida.transform.localScale = new Vector3(spessore, altezzaGuida, spessore);
+            colonnaGuida.transform.localPosition = new Vector3(0f, altezzaGuida * 0.5f, 0f);
+
+            CreaEtichettaTesto(radiceGuida, ConvertiMidiInNomeNota(note), Color.green);
+
+            expectedVisualObjects[note] = radiceGuida;
+        }
+    }
+
+    public void PulisciNoteAtteseVisive()
+    {
+        foreach (var go in expectedVisualObjects.Values)
+        {
+            if (go != null) Destroy(go);
+        }
+        expectedVisualObjects.Clear();
+    }
+
+    void Update()
+    {
+        List<int> toRemove = new List<int>();
+        foreach (var kvp in activeNotes)
+        {
+            NoteState state = kvp.Value;
+
+            if (!state.isPressed)
+            {
+                state.releaseTimer += Time.deltaTime;
+                float t = state.releaseTimer / durataDecadimentoRilascio;
+                state.currentHeight = Mathf.Lerp(state.currentHeight, 0f, t);
+            }
+
+            if (state.currentHeight <= 0.005f || (state.releaseTimer >= durataDecadimentoRilascio && !state.isPressed))
+            {
+                Destroy(state.rootObject);
+                toRemove.Add(kvp.Key);
+            }
+            else
+            {
+                float spessore = IsTastoNero(kvp.Key) ? 0.009f : 0.016f;
+
+                state.columnObject.transform.localScale = new Vector3(spessore, state.currentHeight, spessore);
+                state.columnObject.transform.localPosition = new Vector3(0f, state.currentHeight * 0.5f, 0f);
+            }
+        }
+
+        foreach (int id in toRemove) activeNotes.Remove(id);
+
+        DisegnaFiloGravitazionale(true, leftLineRenderer);
+        DisegnaFiloGravitazionale(false, rightLineRenderer);
+    }
+
+    public void OnNoteReceived(int note, float velocity, string action)
+    {
+        if (action == "release")
+        {
+            if (activeNotes.ContainsKey(note))
+            {
+                activeNotes[note].isPressed = false;
+                activeNotes[note].releaseTimer = 0f;
+            }
+            return;
+        }
+
+        if (!activeNotes.ContainsKey(note))
+        {
+            NoteState s = new NoteState();
+
+            s.rootObject = new GameObject($"Nota_{note}");
+            s.rootObject.transform.SetParent(this.transform, false);
+            s.rootObject.transform.localPosition = new Vector3(CalcolaX(note), 0f, 0f);
+
+            s.columnObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            if (columnMesh != null) s.columnObject.GetComponent<MeshFilter>().mesh = columnMesh;
+
+            s.columnObject.transform.SetParent(s.rootObject.transform, false);
+            Destroy(s.columnObject.GetComponent<BoxCollider>());
+
+            s.columnMaterial = s.columnObject.GetComponent<Renderer>().material;
+            s.columnMaterial.shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            s.isLeftHand = DeterminaMano(note, s.rootObject.transform.position);
+
+            s.textObject = CreaEtichettaTesto(s.rootObject, ConvertiMidiInNomeNota(note), Color.white);
+
+            activeNotes[note] = s;
+        }
+
+        NoteState state = activeNotes[note];
+        state.isPressed = true;
+        state.releaseTimer = 0f;
+
+        float altezzaMassimaColonne = 0.6f;
+        float velocityCalibrata = velocity;
+
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm != null && (gm.statoAttuale == GameManager.AppState.FaiTu || gm.statoAttuale == GameManager.AppState.Tutorial))
+        {
+            velocityCalibrata = Mathf.Pow(velocity, 1.1f) * 1.3f;
+        }
+        else
+        {
+            velocityCalibrata = Mathf.Pow(velocity, 1.4f);
+        }
+
+        velocityCalibrata = Mathf.Clamp01(velocityCalibrata);
+        state.currentHeight = altezzaMassimaColonne * velocityCalibrata;
+
+        Color startColor = state.isLeftHand ? Color.cyan : Color.yellow;
+        Color endColor = state.isLeftHand ? Color.blue : Color.red;
+        state.columnMaterial.color = Color.Lerp(startColor, endColor, velocityCalibrata);
+    }
+
+    private void DisegnaFiloGravitazionale(bool isLeft, LineRenderer lr)
+    {
+        noteFiltrateId.Clear();
+        puntiControllo.Clear();
+        splinePunti.Clear();
+
+        foreach (var kvp in activeNotes)
+        {
+            if (kvp.Value.isLeftHand == isLeft && kvp.Value.columnObject != null)
+            {
+                noteFiltrateId.Add(kvp.Key);
+            }
+        }
+
+        if (noteFiltrateId.Count < 2) { lr.positionCount = 0; return; }
+        noteFiltrateId.Sort();
+
+        for (int i = 0; i < noteFiltrateId.Count; i++)
+        {
+            NoteState s = activeNotes[noteFiltrateId[i]];
+            Vector3 sommit‡Colonna = s.columnObject.transform.position + Vector3.up * (s.currentHeight * 0.5f);
+
+            if (i > 0)
+            {
+                Vector3 puntoPrecedente = puntiControllo[puntiControllo.Count - 1];
+                Vector3 centroMorbido = Vector3.Lerp(puntoPrecedente, sommit‡Colonna, 0.5f);
+                centroMorbido.y -= frecciaCurvaturaGravita;
+                puntiControllo.Add(centroMorbido);
+            }
+            puntiControllo.Add(sommit‡Colonna);
+        }
+
+        if (puntiControllo.Count < 2) return;
+
+        Vector3 pInizioFantasma = puntiControllo[0] - (puntiControllo[1] - puntiControllo[0]);
+        Vector3 pFineFantasma = puntiControllo[puntiControllo.Count - 1] + (puntiControllo[puntiControllo.Count - 1] - puntiControllo[puntiControllo.Count - 2]);
+
+        puntiControllo.Insert(0, pInizioFantasma);
+        puntiControllo.Add(pFineFantasma);
+
+        for (int i = 0; i < puntiControllo.Count - 3; i++)
+        {
+            for (int j = 0; j < risoluzioneCurva; j++)
+            {
+                float t = (float)j / (float)risoluzioneCurva;
+                splinePunti.Add(CalcolaCatmullRom(puntiControllo[i], puntiControllo[i + 1], puntiControllo[i + 2], puntiControllo[i + 3], t));
+            }
+        }
+        splinePunti.Add(puntiControllo[puntiControllo.Count - 2]);
+
+        lr.positionCount = splinePunti.Count;
+        for (int i = 0; i < splinePunti.Count; i++) lr.SetPosition(i, splinePunti[i]);
+    }
+
+    private Vector3 CalcolaCatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
+    {
+        float t2 = t * t; float t3 = t2 * t;
+        return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
+    }
+
+    private bool DeterminaMano(int note, Vector3 posColonnaMondo)
+    {
+        GameManager gm = FindFirstObjectByType<GameManager>();
+
+        if (gm != null && (gm.statoAttuale == GameManager.AppState.Osservatore || gm.statoAttuale == GameManager.AppState.Seguimi))
+        {
+            return note < 60;
+        }
+
+        if (leftHandTransform == null || rightHandTransform == null) return posColonnaMondo.x < transform.position.x;
+        return Vector3.Distance(posColonnaMondo, leftHandTransform.position) < Vector3.Distance(posColonnaMondo, rightHandTransform.position);
+    }
+
+    public bool IsTastoNero(int n)
+    {
+        int notaInOttava = n % 12;
+        return (notaInOttava == 1 || notaInOttava == 3 || notaInOttava == 6 || notaInOttava == 8 || notaInOttava == 10);
+    }
+
+    private float CalcolaX(int n)
+    {
+        int rel = n - NOTA_INIZIALE_MIDI;
+        int tastiBianchiPrecedenti = (rel / 12) * 7 + whiteKeyOffsets[rel % 12];
+        float x = tastiBianchiPrecedenti * LARGHEZZA_TASTO_BIANCO;
+
+        if (IsTastoNero(n))
+        {
+            x += (LARGHEZZA_TASTO_BIANCO / 2f);
+        }
+        return x;
+    }
+
+    private string ConvertiMidiInNomeNota(int n)
+    {
+        string[] nomiITA = { "Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si" };
+        string[] nomiENG = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
+        string nome = usaNotazioneItaliana ? nomiITA[n % 12] : nomiENG[n % 12];
+
+        return nome; // Ora restituisce solo il nome della nota, senza numero dell'ottava
+    }
+
+    private GameObject CreaEtichettaTesto(GameObject radicePadre, string testoNota, Color coloreTesto)
+    {
+        GameObject testoObj = new GameObject("Etichetta_Nota");
+        testoObj.transform.SetParent(radicePadre.transform, false);
+
+        testoObj.transform.localPosition = new Vector3(0f, 0.005f, -0.02f);
+        testoObj.transform.localRotation = Quaternion.Euler(25f, 0f, 0f);
+
+        TextMeshPro tmp = testoObj.AddComponent<TextMeshPro>();
+        tmp.text = testoNota;
+        tmp.fontSize = 0.12f; // Dimensione ridotta per evitare sovrapposizioni tra tasti vicini
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = coloreTesto;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.raycastTarget = false;
+
+        return testoObj;
+    }
+}
