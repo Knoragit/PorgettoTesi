@@ -117,3 +117,10 @@ InitTestScene*.unity*
 # Python
 __pycache__/
 *.pyc
+
+# Local artifacts (never push large/generated files)
+**/Library_Backup*/
+nora_database.db
+*.mid
+**/[Aa]ssets/_Recovery/
+**/[Aa]ssets/Resources/PerformanceTestRun*

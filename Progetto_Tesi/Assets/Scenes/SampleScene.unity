@@ -1737,7 +1737,7 @@ MonoBehaviour:
   visualizer: {fileID: 929642984}
   port: 5005
   pythonPath: python
-  scriptPath: C:/Users/vrlab/Desktop/Nora/midi_bridge.py
+  scriptPath: C:/Users/vrlab/Desktop/Nora/midi_bridge (1).py
 --- !u!4 &404522081
 Transform:
   m_ObjectHideFlags: 0
@@ -6479,7 +6479,7 @@ MonoBehaviour:
   requestEyeTrackingPermissionOnStartup: 0
   requestScenePermissionOnStartup: 1
   requestRecordAudioPermissionOnStartup: 0
-  requestPassthroughCameraAccessPermissionOnStartup: 0
+  requestPassthroughCameraAccessPermissionOnStartup: 1
   _localDimming: 1
   _trackingOriginType: 1
   usePositionTracking: 1

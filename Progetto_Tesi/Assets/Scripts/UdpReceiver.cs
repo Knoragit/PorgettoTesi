@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -10,7 +11,9 @@ public class UdpReceiver : MonoBehaviour
 {
     public PianoVisualizer visualizer;
     private GameManager gameManager;
+    private SongListManager songListManager;
     private Queue<string> messageQueue = new Queue<string>();
+    private Queue<string> debugMessages = new Queue<string>();
     private Thread receiveThread;
     private UdpClient client;
     public int port = 5005;
@@ -19,8 +22,8 @@ public class UdpReceiver : MonoBehaviour
     [Header("Configurazione Python")]
     [Tooltip("Nome del comando python o percorso dell'eseguibile (es. python o python3)")]
     public string pythonPath = "python";
-    [Tooltip("Percorso assoluto o relativo dello script python (es. C:/Users/vrlab/Desktop/Nora/midi_bridge.py)")]
-    public string scriptPath = "C:/Users/vrlab/Desktop/Nora/midi_bridge.py";
+    [Tooltip("Percorso assoluto o relativo dello script python (es. C:/Users/vrlab/Desktop/Nora/midi_bridge (1).py)")]
+    public string scriptPath = "C:/Users/vrlab/Desktop/Nora/midi_bridge (1).py";
 
     private Process pythonProcess;
 
@@ -32,6 +35,11 @@ public class UdpReceiver : MonoBehaviour
     void Start()
     {
         gameManager = FindFirstObjectByType<GameManager>();
+        songListManager = FindFirstObjectByType<SongListManager>();
+        if (songListManager == null && gameObject.GetComponent<SongListManager>() == null)
+        {
+            songListManager = gameObject.AddComponent<SongListManager>();
+        }
 
         isRunning = true;
         receiveThread = new Thread(new ThreadStart(ReceiveData))
@@ -64,15 +72,34 @@ public class UdpReceiver : MonoBehaviour
 
     private void ReceiveData()
     {
-        try
+        // Retry del bind: il socket di un play precedente a volte impiega
+        // qualche secondo a liberarsi (finalizzatore/O.S.).
+        for (int tentativo = 0; tentativo < 20; tentativo++)
         {
-            client = new UdpClient(port);
+            bool ok = ApriSocket();
+            if (ok) break;
+
+            // Se dopo 10 secondi la porta è ancora occupata, continuiamo a
+            // riprovare in background finché non si libera (es. socket orfani
+            // rimasti dall'editor), invece di rinunciare del tutto.
+            if (tentativo == 19 && isRunning)
+            {
+                AddDebugMessage("[UDP] Porta occupata: riprovo in background ogni secondo...");
+                while (isRunning)
+                {
+                    Thread.Sleep(1000);
+                    if (ApriSocket()) break;
+                }
+            }
+            else
+            {
+                try { if (client != null) client.Close(); } catch { }
+                client = null;
+                Thread.Sleep(500);
+            }
         }
-        catch (System.Exception e)
-        {
-            UnityEngine.Debug.LogError($"[UDP ERRORE] Impossibile aprire la porta UDP {port}: {e.Message}");
-            return;
-        }
+
+        if (client == null) return;
 
         while (isRunning)
         {
@@ -86,17 +113,67 @@ public class UdpReceiver : MonoBehaviour
                     messageQueue.Enqueue(text);
                 }
             }
-            catch (SocketException) { break; }
+            catch (SocketException)
+            {
+                if (isRunning) AddDebugMessage("[UDP] Porta UDP chiusa.");
+                break;
+            }
             catch (System.Exception e)
             {
-                UnityEngine.Debug.LogError("[UDP ERRORE RICEZIONE]: " + e.Message);
+                AddDebugMessage("[UDP ERRORE RICEZIONE]: " + e.Message);
                 break;
             }
         }
     }
 
+    private bool ApriSocket()
+    {
+        try
+        {
+            Socket sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            sock.ExclusiveAddressUse = false;
+            sock.Bind(new IPEndPoint(IPAddress.Any, port));
+
+            UdpClient nuovo = new UdpClient();
+            nuovo.Client = sock;
+            client = nuovo;
+            return true;
+        }
+        catch (System.Exception e)
+        {
+            if (client != null) { try { client.Close(); } catch { } client = null; }
+            AddDebugMessage($"[UDP] Bind porta {port} non riuscito (ritento): {e.Message}");
+            return false;
+        }
+    }
+
+    // I messaggi di debug generati dal thread di ricezione vengono
+    // stampati sul main thread (in Update) per evitare chiamate Unity API off-main.
+    private void AddDebugMessage(string msg)
+    {
+        lock (debugMessages)
+        {
+            debugMessages.Enqueue(msg);
+        }
+    }
+
     void Update()
     {
+        while (true)
+        {
+            string dbg = null;
+            lock (debugMessages)
+            {
+                if (debugMessages.Count > 0) dbg = debugMessages.Dequeue();
+            }
+            if (dbg == null) break;
+            if (dbg.StartsWith("[UDP ERRORE]"))
+                UnityEngine.Debug.LogError(dbg);
+            else
+                UnityEngine.Debug.Log(dbg);
+        }
+
         while (messageQueue.Count > 0)
         {
             string text = null;
@@ -110,7 +187,16 @@ public class UdpReceiver : MonoBehaviour
             {
                 try
                 {
-                    var json = JsonUtility.FromJson<MidiData>(text.Replace("'", "\""));
+                    // Per i messaggi del bridge (JSON valido con doppi apici) il Replace
+                    // con apici singoli è inutile e dannoso (rompe titoli con apostrofo),
+                    // quindi proviamo prima il parsing diretto e solo in fallback il Replace.
+                    MidiData json = null;
+                    json = JsonUtility.FromJson<MidiData>(text);
+                    if (json == null || string.IsNullOrEmpty(json.action))
+                    {
+                        json = JsonUtility.FromJson<MidiData>(text.Replace("'", "\""));
+                    }
+
                     if (json != null)
                     {
                         if (json.action == "report_ready")
@@ -121,13 +207,33 @@ public class UdpReceiver : MonoBehaviour
                         {
                             if (gameManager != null) gameManager.ImpostaNoteAttese(json.notes);
                         }
-                        // NUOVO BLOCCO DA AGGIUNGERE: Intercetta il comando di pulizia scena da Python
                         else if (json.action == "clear_scene")
                         {
                             if (visualizer != null)
                             {
                                 visualizer.ResetVisualizer();
                                 visualizer.PulisciNoteAtteseVisive();
+                            }
+                        }
+                        else if (json.action == "song_list")
+                        {
+                            if (songListManager != null)
+                            {
+                                songListManager.SongListRicevuta(json.songs, json.suggest);
+                            }
+                        }
+                        else if (json.action == "search_result")
+                        {
+                            if (songListManager != null)
+                            {
+                                songListManager.SearchResultRicevuta(json.status, json.filename, json.title, json.artist, json.message);
+                            }
+                        }
+                        else if (json.action == "play_result")
+                        {
+                            if (songListManager != null)
+                            {
+                                songListManager.PlayResultRicevuta(json.status, json.message);
                             }
                         }
                         else
@@ -146,20 +252,31 @@ public class UdpReceiver : MonoBehaviour
         }
     }
 
-    private void InviaJsonAPython(string jsonComando)
+    public void InviaComandoListaSongs()
     {
-        try
-        {
-            using (UdpClient sendClient = new UdpClient())
-            {
-                byte[] data = Encoding.UTF8.GetBytes(jsonComando);
-                sendClient.Send(data, data.Length, "127.0.0.1", 5006);
-            }
-        }
-        catch (System.Exception e)
-        {
-            UnityEngine.Debug.LogError("[UDP ERRORE INVIO]: " + e.Message);
-        }
+        string json = "{\"action\":\"list_songs\"}";
+        InviaJsonAPython(json);
+    }
+
+    public void InviaComandoSuggerimento(string query)
+    {
+        string json = "{\"action\":\"search_suggest\", \"query\":" + QueryComeStringaJson(query) + "}";
+        InviaJsonAPython(json);
+    }
+
+    public void InviaComandoRicerca(string query)
+    {
+        string json = "{\"action\":\"search_song\", \"query\":" + QueryComeStringaJson(query) + "}";
+        InviaJsonAPython(json);
+    }
+
+    // La query deve arrivare a Python come stringa JSON ("query":"testo"), non come
+    // oggetto {"value":"testo"}: con il payload precedente python riceveva un dict e
+    // la ricerca non rispondeva mai (AttributeError su query.strip()).
+    private static string QueryComeStringaJson(string query)
+    {
+        string q = (query ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
+        return "\"" + q + "\"";
     }
 
     public void InviaComandoRiproduzione(string nomeFileMidi, bool isSeguimi = false)
@@ -168,11 +285,11 @@ public class UdpReceiver : MonoBehaviour
         InviaComandoStop();
 
         // 2. Puliamo subito il visualizzatore in Unity per evitare sovrapposizioni di vecchie colonne
-        PianoVisualizer visualizer = FindFirstObjectByType<PianoVisualizer>();
-        if (visualizer != null)
+        PianoVisualizer vis = FindFirstObjectByType<PianoVisualizer>();
+        if (vis != null)
         {
-            visualizer.ResetVisualizer();
-            visualizer.PulisciNoteAtteseVisive();
+            vis.ResetVisualizer();
+            vis.PulisciNoteAtteseVisive();
         }
 
         // 3. Mandiamo il comando al nuovo brano
@@ -180,6 +297,23 @@ public class UdpReceiver : MonoBehaviour
         string json = "{\"action\":\"" + azione + "\", \"filename\":\"" + nomeFileMidi + "\"}";
         InviaJsonAPython(json);
         UnityEngine.Debug.Log($"[UDP] Richiesto brano ({azione}): {nomeFileMidi}");
+    }
+
+    public void InviaComandoRiproduzioneConId(int songId, bool isSeguimi = false)
+    {
+        InviaComandoStop();
+
+        PianoVisualizer vis = FindFirstObjectByType<PianoVisualizer>();
+        if (vis != null)
+        {
+            vis.ResetVisualizer();
+            vis.PulisciNoteAtteseVisive();
+        }
+
+        string azione = isSeguimi ? "play_song_follow" : "play_song";
+        string json = "{\"action\":\"" + azione + "\", \"id\":" + songId + "}";
+        InviaJsonAPython(json);
+        UnityEngine.Debug.Log($"[UDP] Richiesto brano ({azione}) con id: {songId}");
     }
 
     public void InviaComandoStartFaiTu(string nomePerformance = "Improvvisazione_Libera")
@@ -212,31 +346,120 @@ public class UdpReceiver : MonoBehaviour
         InviaJsonAPython(json);
     }
 
-    private void TerminaScriptPython()
+    private void InviaJsonAPython(string jsonComando)
     {
         try
         {
-            InviaComandoStop();
-            if (client != null) client.Close();
-
-            if (pythonProcess != null && !pythonProcess.HasExited)
+            using (UdpClient sendClient = new UdpClient())
             {
-                pythonProcess.Kill(); // Termina forzatamente il processo e chiude la finestra del terminale
-                pythonProcess.Dispose();
-                pythonProcess = null;
-                UnityEngine.Debug.Log("<color=cyan>[UDP]</color> Processo Python terminato.");
+                byte[] data = Encoding.UTF8.GetBytes(jsonComando);
+                sendClient.Send(data, data.Length, "127.0.0.1", 5006);
             }
         }
         catch (System.Exception e)
         {
-            UnityEngine.Debug.LogError($"[UDP ERRORE] Chiusura Python fallita: {e.Message}");
+            UnityEngine.Debug.LogError("[UDP ERRORE INVIO]: " + e.Message);
+        }
+    }
+
+    private bool terminata = false;
+
+    private void TerminaScriptPython()
+    {
+        if (terminata) return;
+        terminata = true;
+        isRunning = false;
+
+        try { InviaComandoStop(); } catch { }
+
+        // 1. Chiudi SEMPRE il socket di ricezione: sblocca Receive() e libera la porta UDP.
+        try
+        {
+            if (client != null)
+            {
+                client.Close();
+                client = null;
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogWarning($"[UDP] Chiusura socket: {e.Message}");
+        }
+
+        // Forza l'eventuale finalizzatore del socket: libera la porta UDP
+        // subito, senza lasciare porte "orfane" che bloccherebbero il Play successivo.
+        try { GC.Collect(); GC.WaitForPendingFinalizers(); } catch { }
+
+        // 2. Attendi brevemente la fine del thread di ricezione.
+        try
+        {
+            if (receiveThread != null)
+            {
+                receiveThread.Join(500);
+                receiveThread = null;
+            }
+        }
+        catch (System.Exception e)
+        {
+            UnityEngine.Debug.LogWarning($"[UDP] Join thread: {e.Message}");
+        }
+
+        // 3. Termina il processo Python e tutto il suo albero (evita processi orfani).
+        if (pythonProcess != null)
+        {
+            try
+            {
+                if (!pythonProcess.HasExited)
+                {
+                    try
+                    {
+                        using (Process killer = new Process())
+                        {
+                            killer.StartInfo.FileName = "taskkill";
+                            killer.StartInfo.Arguments = $"/PID {pythonProcess.Id} /T /F";
+                            killer.StartInfo.CreateNoWindow = true;
+                            killer.StartInfo.UseShellExecute = false;
+                            killer.Start();
+                            killer.WaitForExit(2000);
+                        }
+                    }
+                    catch { }
+                    try { pythonProcess.Kill(); } catch { }
+                }
+                pythonProcess.Dispose();
+            }
+            catch { }
+            pythonProcess = null;
+            UnityEngine.Debug.Log("<color=cyan>[UDP]</color> Processo Python terminato.");
         }
     }
 
     void OnApplicationQuit()
     {
-        isRunning = false;
         TerminaScriptPython();
+    }
+
+    // Rete di sicurezza: OnDestroy viene chiamato anche su exit bruschi del Play
+    // e su domain reload, quando OnApplicationQuit potrebbe non scattare.
+    void OnDestroy()
+    {
+        TerminaScriptPython();
+    }
+
+    [System.Serializable]
+    public class SongData
+    {
+        public int id;
+        public string query;
+        public string filename;
+        public string title;
+        public string artist;
+    }
+
+    [System.Serializable]
+    public class StringPayload
+    {
+        public string value;
     }
 
     [System.Serializable]
@@ -247,6 +470,14 @@ public class UdpReceiver : MonoBehaviour
         public string action;
         public int[] notes;
         public string file;
+        public int count;
+        public bool suggest;
+        public string status;
+        public string message;
+        public string filename;
+        public string title;
+        public string artist;
+        public SongData[] songs;
         public MidiData() { }
     }
 }

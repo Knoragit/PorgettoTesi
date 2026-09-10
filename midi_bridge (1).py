@@ -322,6 +322,61 @@ def get_filename_by_id(song_id):
     conn.close()
     return row[0] if row else None
 
+def scan_local_folder():
+    """Registra nel DB locale tutti i file .mid già presenti nella cartella Nora."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    if not os.path.isdir(DESKTOP_PATH):
+        print(f"[SCAN CARTELLA] Cartella non trovata: {DESKTOP_PATH}")
+        conn.close()
+        return 0
+    aggiunti = 0
+    for nome_file in os.listdir(DESKTOP_PATH):
+        if not nome_file.lower().endswith(".mid"):
+            continue
+        info = parse_song_info(nome_file)
+        query = nome_file.lower()
+        try:
+            c.execute(
+                "INSERT OR IGNORE INTO midi_files (query, filename, title, artist) VALUES (?, ?, ?, ?)",
+                (query, nome_file, info["title"], info["artist"])
+            )
+            if c.rowcount and c.rowcount > 0:
+                aggiunti += 1
+        except Exception as e:
+            print(f"[SCAN CARTELLA] Errore per {nome_file}: {e}")
+    conn.commit()
+    conn.close()
+    print(f"[SCAN CARTELLA] Aggiunti {aggiunti} brani locali al database.")
+    return aggiunti
+
+def suggest_songs(query, limit=20):
+    """Ricerca parziale (Live) nel DB locale per i suggerimenti mentre si digita."""
+    clean = query.strip().lower()
+    if not clean:
+        return []
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    like = f"%{clean}%"
+    c.execute(
+        "SELECT id, query, filename, title, artist FROM midi_files "
+        "WHERE title LIKE ? OR artist LIKE ? OR filename LIKE ? OR query LIKE ? "
+        "ORDER BY id LIMIT ?",
+        (like, like, like, like, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    songs = []
+    for rid, query, filename, title, artist in rows:
+        songs.append({
+            "id": rid,
+            "query": query,
+            "filename": filename,
+            "title": title,
+            "artist": artist
+        })
+    return songs
+
 # ==========================================
 # SINTETIZZATORE AUDIO WAV
 # ==========================================
@@ -900,6 +955,12 @@ def udp_command_listener():
                 query = cmd.get("query", "")
                 threading.Thread(target=handle_song_request, args=(query,), daemon=True).start()
 
+            elif action == "search_suggest":
+                query = cmd.get("query", "")
+                songs = suggest_songs(query)
+                send_to_unity({"action": "song_list", "count": len(songs), "songs": songs, "suggest": True})
+                print(f"[SUGGERIMENTI] Inviate {len(songs)} corrispondenze per '{query}'.")
+
         except Exception as e:
             print(f"[ERRORE UDP] {e}")
 
@@ -907,6 +968,8 @@ def udp_command_listener():
 # MAIN ENTRY POINT
 # ==========================================
 if __name__ == "__main__":
+    scan_local_folder()
+
     t_midi = threading.Thread(target=midi_input_loop, daemon=True)
     t_udp = threading.Thread(target=udp_command_listener, daemon=True)
 

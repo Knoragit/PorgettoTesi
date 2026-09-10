@@ -14,7 +14,7 @@ public class ManualAnchor : MonoBehaviour
     public Vector3 offsetCanvasDalPiano = new Vector3(0.60f, 0.25f, 0.20f);
     // X = 0.60 (Centrato lungo la tastiera 88 tasti)
     // Y = 0.25 (Altezza sopra i tasti)
-    // Z = 0.20 (Profondità: dietro le colonne 3D)
+    // Z = 0.20 (Profonditï¿½: dietro le colonne 3D)
 
     [Header("Materiali Sfere di Feedback (Opzionale)")]
     public Material materialePunto1; // Es. Rosso (Estremo Sinistro)
@@ -35,8 +35,9 @@ public class ManualAnchor : MonoBehaviour
 
     // --- PROTEZIONE CONTRO I CLICK MULTIPLI ---
     private float lastPinchTime = 0f;
+    private bool diagnosticStampato = false;
 
-    // Distanza teorica in metri tra il tasto più a sinistra e quello più a destra (1.1985m su 88 tasti)
+    // Distanza teorica in metri tra il tasto piï¿½ a sinistra e quello piï¿½ a destra (1.1985m su 88 tasti)
     private const float LARGHEZZA_TEORICA_TASTIERA = 1.1985f;
 
     void Start()
@@ -50,20 +51,70 @@ public class ManualAnchor : MonoBehaviour
             originalCanvasLocalScale = canvasTransform.localScale; // <-- Salva la scala VR (es. 0.001)
         }
 
-        // Rilevamento automatico della telecamera del visore
-        OVRCameraRig cameraRig = FindFirstObjectByType<OVRCameraRig>();
-        if (cameraRig != null) mainCameraTransform = cameraRig.centerEyeAnchor;
-        else if (Camera.main != null) mainCameraTransform = Camera.main.transform;
+        RisolviCamera();
 
         if (guideSphere != null) guideSphere.SetActive(true);
+
+        if (guideSphere != null && guideSphere.GetComponent<Renderer>() != null)
+        {
+            Debug.Log($"[CALIBRAZIONE] GuideSphere colore materiale: {guideSphere.GetComponent<Renderer>().sharedMaterial.color}, shader: {guideSphere.GetComponent<Renderer>().sharedMaterial.shader.name}");
+        }
 
         AggiornaTestoIstruzioni();
     }
 
+    private void RisolviCamera()
+    {
+        if (mainCameraTransform != null) return;
+
+        // 1) Telecamera del visore Meta (OVRCameraRig/CenterEyeAnchor)
+        OVRCameraRig cameraRig = FindFirstObjectByType<OVRCameraRig>();
+        if (cameraRig != null && cameraRig.centerEyeAnchor != null)
+        {
+            mainCameraTransform = cameraRig.centerEyeAnchor;
+            Debug.Log($"[CALIBRAZIONE] Telecamera trovata: CenterEyeAnchor (OVRCameraRig)");
+            return;
+        }
+
+        // 2) Fallback: telecamera taggata MainCamera
+        if (Camera.main != null)
+        {
+            mainCameraTransform = Camera.main.transform;
+            Debug.Log($"[CALIBRAZIONE] Telecamera trovata: {Camera.main.name} (Camera.main)");
+            return;
+        }
+
+        // 3) Fallback: qualunque telecamera abilitata nella scena
+        foreach (Camera c in Object.FindObjectsByType<Camera>(FindObjectsSortMode.None))
+        {
+            if (c == null || !c.enabled) continue;
+            mainCameraTransform = c.transform;
+            Debug.Log($"[CALIBRAZIONE] Telecamera trovata: {c.name} (fallback)");
+            return;
+        }
+
+        Debug.LogWarning("[CALIBRAZIONE] Nessuna telecamera trovata per la sfera guida! Verifica OVRCameraRig/Camera.main.");
+    }
+
     void Update()
     {
-        // Se abbiamo completato la calibrazione, non facciamo più nulla
-        if (currentStep >= 3 || guideSphere == null || mainCameraTransform == null) return;
+        // Se non abbiamo ancora una telecamera, riproviamo ogni frame
+        // (il rig del visore potrebbe attivarsi dopo il nostro Start).
+        if (mainCameraTransform == null)
+        {
+            RisolviCamera();
+            if (mainCameraTransform == null) return;
+        }
+
+        if (!diagnosticStampato && mainCameraTransform != null)
+        {
+            diagnosticStampato = true;
+            Renderer r = guideSphere != null ? guideSphere.GetComponent<Renderer>() : null;
+            Debug.Log($"[CALIBRAZIONE] DIAG camera pos={mainCameraTransform.position} fwd={mainCameraTransform.forward} | sfera active={guideSphere != null && guideSphere.activeInHierarchy} worldPos={(guideSphere != null ? guideSphere.transform.position.ToString("F3") : "n/a")} scale={(guideSphere != null ? guideSphere.transform.lossyScale.ToString("F3") : "n/a")} rendererEnabled={(r != null ? r.enabled.ToString() : "n/a")} bounds={(r != null ? r.bounds.ToString("F3") : "n/a")}");
+        }
+
+        // Se abbiamo completato la calibrazione, non facciamo piï¿½ nulla
+        if (currentStep >= 3 || guideSphere == null) return;
 
         // Proietta la sfera guida davanti all'utente per permettergli di mirare agli sticker
         Vector3 targetPos = mainCameraTransform.position + mainCameraTransform.forward * 0.6f + Vector3.down * 0.2f;
@@ -136,7 +187,7 @@ public class ManualAnchor : MonoBehaviour
         Vector3 upDir = Vector3.up;
         Vector3 forwardDir = Vector3.Cross(rightDir, upDir).normalized;
 
-        // --- 2. SPOSTAMENTO IN PROFONDITÀ ---
+        // --- 2. SPOSTAMENTO IN PROFONDITï¿½ ---
         float profonditaPunto3 = Vector3.Dot(p3 - p1, forwardDir);
         Vector3 posizioneArretrata = p1 + (forwardDir * profonditaPunto3);
 

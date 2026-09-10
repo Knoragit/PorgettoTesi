@@ -55,5 +55,9 @@ public class BranoButtonUI : MonoBehaviour
         {
             receiver.InviaComandoRiproduzione(nomeFileMidi, false);
         }
+
+        // Se eravamo in modalità ricerca, usciamo e torniamo alla lista completa.
+        SongListManager slm = FindFirstObjectByType<SongListManager>();
+        if (slm != null) slm.CanzoneAvviata();
     }
 }
