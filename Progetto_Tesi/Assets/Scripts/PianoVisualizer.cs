@@ -13,6 +13,7 @@ public class PianoVisualizer : MonoBehaviour
         public bool isPressed;
         public bool isLeftHand;
         public float releaseTimer;
+        public float pressTimer;
         public Material columnMaterial;
     }
 
@@ -36,6 +37,7 @@ public class PianoVisualizer : MonoBehaviour
 
     [Header("Parametri di Decadimento Temporale")]
     public float durataDecadimentoRilascio = 1.0f;
+    public float durataMaxNotaPremuta = 12.0f;
 
     [Header("Mesh Colonna")]
     public Mesh columnMesh;
@@ -86,7 +88,8 @@ public class PianoVisualizer : MonoBehaviour
         activeNotes.Clear();
         if (leftLineRenderer != null) leftLineRenderer.positionCount = 0;
         if (rightLineRenderer != null) rightLineRenderer.positionCount = 0;
-        Debug.Log("[VISUALIZER] Schermo pulito e colonne azzerate.");
+        PulisciNoteAtteseVisive();
+        Debug.Log("[VISUALIZER] Schermo pulito e colonne azzerate (incluse note attese).");
     }
 
     public void MostraNoteAttese(int[] notes)
@@ -149,6 +152,19 @@ public class PianoVisualizer : MonoBehaviour
         {
             NoteState state = kvp.Value;
 
+            if (state.isPressed)
+            {
+                state.pressTimer += Time.deltaTime;
+                if (state.pressTimer >= durataMaxNotaPremuta)
+                {
+                    // Nota MIDI rimasta premuta senza rilascio (o esecuzione
+                    // interrotta): forziamo il decay per non lasciare colonne
+                    // congelate sul piano visivo.
+                    state.isPressed = false;
+                    state.releaseTimer = 0f;
+                }
+            }
+
             if (!state.isPressed)
             {
                 state.releaseTimer += Time.deltaTime;
@@ -184,6 +200,7 @@ public class PianoVisualizer : MonoBehaviour
             {
                 activeNotes[note].isPressed = false;
                 activeNotes[note].releaseTimer = 0f;
+                activeNotes[note].pressTimer = 0f;
             }
             return;
         }
@@ -215,6 +232,7 @@ public class PianoVisualizer : MonoBehaviour
         NoteState state = activeNotes[note];
         state.isPressed = true;
         state.releaseTimer = 0f;
+        state.pressTimer = 0f;
 
         float altezzaMassimaColonne = 0.6f;
         float velocityCalibrata = velocity;
@@ -257,16 +275,16 @@ public class PianoVisualizer : MonoBehaviour
         for (int i = 0; i < noteFiltrateId.Count; i++)
         {
             NoteState s = activeNotes[noteFiltrateId[i]];
-            Vector3 sommit‡Colonna = s.columnObject.transform.position + Vector3.up * (s.currentHeight * 0.5f);
+            Vector3 sommitaColonna = s.columnObject.transform.position + Vector3.up * (s.currentHeight * 0.5f);
 
             if (i > 0)
             {
                 Vector3 puntoPrecedente = puntiControllo[puntiControllo.Count - 1];
-                Vector3 centroMorbido = Vector3.Lerp(puntoPrecedente, sommit‡Colonna, 0.5f);
+                Vector3 centroMorbido = Vector3.Lerp(puntoPrecedente, sommitaColonna, 0.5f);
                 centroMorbido.y -= frecciaCurvaturaGravita;
                 puntiControllo.Add(centroMorbido);
             }
-            puntiControllo.Add(sommit‡Colonna);
+            puntiControllo.Add(sommitaColonna);
         }
 
         if (puntiControllo.Count < 2) return;

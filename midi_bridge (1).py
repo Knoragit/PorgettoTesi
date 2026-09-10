@@ -6,8 +6,10 @@ import threading
 import wave
 import copy
 import sqlite3
+import hashlib
 import urllib.request
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import mido
 import requests
@@ -30,6 +32,9 @@ DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop", "Nora")
 if not os.path.exists(DESKTOP_PATH):
     os.makedirs(DESKTOP_PATH)
 
+# Numero massimo di risultati scaricati e salvati per ogni ricerca online
+MAX_RESULTS = 4
+
 # ==========================================
 # CONFIGURAZIONE DATABASE LOCALE (SQLite)
 # ==========================================
@@ -40,10 +45,27 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS midi_files
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  query TEXT UNIQUE,
-                  filename TEXT,
+                  query TEXT,
+                  filename TEXT UNIQUE,
                   title TEXT,
                   artist TEXT)''')
+    # Migrazione: la versione precedente aveva UNIQUE su query, che impediva
+    # di salvare più risultati per la stessa ricerca. Se rilevato, ricrea la
+    # tabella con UNIQUE su filename e copia i dati esistenti.
+    sql = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='midi_files'").fetchone()
+    old_schema = bool(sql) and re.search(r'query[^,\n]*UNIQUE', sql[0], re.IGNORECASE)
+    if old_schema:
+        print("[DB] Migrazione tabella midi_files (UNIQUE query -> UNIQUE filename)...")
+        c.execute('''CREATE TABLE midi_files_new
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      query TEXT,
+                      filename TEXT UNIQUE,
+                      title TEXT,
+                      artist TEXT)''')
+        c.execute('''INSERT OR IGNORE INTO midi_files_new (query, filename, title, artist)
+                     SELECT query, filename, title, artist FROM midi_files''')
+        c.execute("DROP TABLE midi_files")
+        c.execute("ALTER TABLE midi_files_new RENAME TO midi_files")
     conn.commit()
     conn.close()
 
@@ -75,6 +97,31 @@ def has_piano_track(filepath):
         print(f"[ERRORE ANALISI MIDI] {e}")
         return False
 
+def is_midi_safe_for_visualizer(filepath):
+    """Rifiuta i MIDI 'a martello' (rip da videogame/sequencer) che saturano
+    il visualizer: troppe note diverse ripremute senza tregua fanno sembrare
+    tutti i tasti premuti e 'bloccati'. Ritorna (ok, motivo)."""
+    try:
+        mid = mido.MidiFile(filepath)
+        pitches = set()
+        note_msgs = 0
+        for msg in mid:
+            if msg.type in ('note_on', 'note_off'):
+                note_msgs += 1
+                if msg.type == 'note_on' and msg.velocity > 0:
+                    pitches.add(msg.note)
+        seconds = max(0.001, mid.length)
+        evt_s = note_msgs / seconds
+
+        if evt_s > 150.0:
+            return False, f"flusso note estremo ({evt_s:.0f} evt/s) - rip/sequencer non adatto"
+        if len(pitches) > 70 and evt_s > 60.0:
+            return False, f"copertura tastiera ({len(pitches)} note) e flusso alto ({evt_s:.0f} evt/s)"
+        return True, ""
+    except Exception as e:
+        print(f"[ERRORE ANALISI SICUREZZA] {e}")
+        return True, ""
+
 def extract_song_metadata(html):
     """Extracts (title, artist) from a freemidi.org download page HTML."""
     title = None
@@ -102,9 +149,8 @@ def extract_song_metadata(html):
         artist = m.group(1).strip()
 
     return title, artist
-
-def search_and_download_online(query):
-    """Searches and downloads a MIDI file from freemidi.org."""
+def freemidi_search_candidates(query, max_results=MAX_RESULTS):
+    """Estrae fino a max_results link candidati dalla pagina di ricerca freemidi.org."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -116,14 +162,25 @@ def search_and_download_online(query):
         resp = session.get(search_url, headers=headers, timeout=12)
 
         if resp.status_code != 200:
-            return None, None, None, None
+            return []
 
-        # 2. Parse download3-{id}-{slug} links from the results
-        links = list(set(re.findall(r'download3-\d+-[\w-]+', resp.text)))
-        if not links:
-            return None, None, None, None
+        # 2. Parse download3-{id}-{slug} links from the results (ordine pagina)
+        links = list(dict.fromkeys(re.findall(r'download3-\d+-[\w-]+', resp.text)))
+        return links[:max_results]
 
-        slug = links[0]
+    except Exception as e:
+        print(f"[ONLINE SEARCH ERROR] {e}")
+
+    return []
+
+def download_freemidi_candidate(slug):
+    """Scarica un singolo candidato da freemidi.org. Ritorna la tupla o None."""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        session = requests.Session()
+
         track_id = re.search(r'download3-(\d+)', slug).group(1)
         dl_page = f"https://freemidi.org/{slug}"
 
@@ -147,9 +204,96 @@ def search_and_download_online(query):
             return filepath, filename, title, artist
 
     except Exception as e:
-        print(f"[ONLINE SEARCH ERROR] {e}")
+        print(f"[DOWNLOAD MIDI ERROR] {slug}: {e}")
 
-    return None, None, None, None
+    return None
+
+def bitmidi_search_candidates(query, max_results=MAX_RESULTS):
+    """Best-effort: estrae i link candidati dalla pagina di ricerca di bitmidi.com."""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        session = requests.Session()
+        search_url = f"https://www.bitmidi.com/search?q={urllib.parse.quote(query)}"
+        resp = session.get(search_url, headers=headers, timeout=12)
+        if resp.status_code != 200:
+            return []
+        # Link pagina brano: slug che terminano con -mid (ordine di pagina)
+        hrefs = re.findall(r'href="(/[^"]*-mid)"', resp.text)
+        candidates = []
+        for h in hrefs:
+            if h not in candidates:
+                candidates.append("https://www.bitmidi.com" + h)
+        return candidates[:max_results]
+    except Exception as e:
+        print(f"[BITMIDI SEARCH ERROR] {e}")
+    return []
+
+def download_bitmidi_candidate(page_url):
+    """Scarica il primo link .mid trovato nella pagina del brano bitmidi.com."""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        session = requests.Session()
+        resp = session.get(page_url, headers=headers, timeout=12)
+        if resp.status_code != 200:
+            return None
+
+        mid_links = re.findall(r'(?:href|src)="(?:[^"]*)(/uploads/[^"]+\.mid)"', resp.text, re.IGNORECASE)
+        if not mid_links:
+            mid_links = re.findall(r'(?:href|src)="([^"]+\.mid[^"]*)"', resp.text, re.IGNORECASE)
+
+        for link in mid_links:
+            if not link.startswith("http"):
+                link = "https://www.bitmidi.com" + link
+            r = session.get(link, headers={**headers, 'Referer': page_url}, timeout=15)
+            if r.status_code == 200 and r.content[:4] == b'MThd':
+                filename = hashlib.md5(page_url.encode()).hexdigest()[:10] + ".mid"
+                filepath = os.path.join(DESKTOP_PATH, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(r.content)
+                title = None
+                artist = None
+                m = re.search(r'<title>([^<]+)</title>', resp.text, re.IGNORECASE)
+                if m:
+                    title = re.sub(r'\s*\.mid\s*.*$', '', m.group(1), flags=re.IGNORECASE).strip()
+                return filepath, filename, title, artist
+
+    except Exception as e:
+        print(f"[BITMIDI DOWNLOAD ERROR] {page_url}: {e}")
+
+    return None
+
+def download_validated_candidates(candidates, downloader):
+    """Scarica i candidati in parallelo, filtrando quelli con parte pianoforte."""
+    results = []
+    if not candidates:
+        return results
+    with ThreadPoolExecutor(max_workers=len(candidates)) as executor:
+        futures = [executor.submit(downloader, cand) for cand in candidates]
+        for future in futures:
+            try:
+                result = future.result()
+            except Exception as e:
+                print(f"[PARALLEL DOWNLOAD ERROR] {e}")
+                continue
+            if not result:
+                continue
+            if has_piano_track(result[0]):
+                safe, motivo = is_midi_safe_for_visualizer(result[0])
+                if safe:
+                    results.append(result)
+                else:
+                    if os.path.exists(result[0]):
+                        os.remove(result[0])
+                    print(f"[ERRORE FILTRO] Brano scartato per sicurezza: {motivo}")
+            else:
+                if os.path.exists(result[0]):
+                    os.remove(result[0])
+                print("[ERRORE FILTRO] Brano senza pianoforte scartato.")
+    return results
 
 def handle_song_request(query):
     """Gestisce l'intera pipeline di ricerca: DB Locale -> Online -> Filtro Piano -> Risposta UDP."""
@@ -162,7 +306,7 @@ def handle_song_request(query):
     c = conn.cursor()
     
     # 1. Controllo nel Database Locale (Cache)
-    c.execute("SELECT filename, title, artist FROM midi_files WHERE query=?", (clean_query,))
+    c.execute("SELECT filename, title, artist FROM midi_files WHERE query=? ORDER BY id LIMIT 1", (clean_query,))
     row = c.fetchone()
     
     if row:
@@ -174,11 +318,22 @@ def handle_song_request(query):
             conn.close()
             return
 
-    # 2. Ricerca sul Database Online
-    print("[ONLINE] Ricerca sul web in corso...")
-    filepath, filename, title, artist = search_and_download_online(clean_query)
-    
-    if not filepath:
+    # 2. Ricerca sul Database Online: freemidi multi-risultato
+    print("[ONLINE] Ricerca su freemidi.org in corso...")
+    results = download_validated_candidates(
+        freemidi_search_candidates(clean_query),
+        download_freemidi_candidate
+    )
+
+    # 3. Fallback su bitmidi.com se freemidi non ha prodotto risultati validi
+    if not results:
+        print("[ONLINE] Nessun risultato freemidi valido, provo con bitmidi.com...")
+        results = download_validated_candidates(
+            bitmidi_search_candidates(clean_query),
+            download_bitmidi_candidate
+        )
+
+    if not results:
         print("[ONLINE] Nessun risultato trovato.")
         send_to_unity({
             "action": "search_result", 
@@ -188,23 +343,19 @@ def handle_song_request(query):
         conn.close()
         return
 
-    # 3. Controllo traccia pianoforte
-    print("[FILTRO MIDI] Controllo presenza parte pianoforte...")
-    if has_piano_track(filepath):
-        c.execute("INSERT OR REPLACE INTO midi_files (query, filename, title, artist) VALUES (?, ?, ?, ?)",
-                  (clean_query, filename, title, artist))
-        conn.commit()
-        print(f"[SUCCESS] File convalidato e salvato nel DB locale: {filename}")
-        send_to_unity({"action": "search_result", "status": "success", "filename": filename, "title": title, "artist": artist})
-    else:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        print("[ERRORE FILTRO] Il brano non contiene tracce di pianoforte.")
-        send_to_unity({
-            "action": "search_result", 
-            "status": "error", 
-            "message": "Brano trovato, ma non contiene parti per pianoforte."
-        })
+    # 4. Salvataggio nel DB locale di tutti i brani validati
+    for filepath, filename, title, artist in results:
+        try:
+            c.execute("INSERT OR IGNORE INTO midi_files (query, filename, title, artist) VALUES (?, ?, ?, ?)",
+                      (clean_query, filename, title, artist))
+        except Exception as e:
+            print(f"[DB] Errore salvataggio {filename}: {e}")
+    conn.commit()
+
+    # 5. Risposta UDP con il primo brano valido (i suggerimenti mostreranno tutti)
+    filepath, filename, title, artist = results[0]
+    print(f"[SUCCESS] Salvati {len(results)} brano/i per '{clean_query}', primo: {filename}")
+    send_to_unity({"action": "search_result", "status": "success", "filename": filename, "title": title, "artist": artist})
     
     conn.close()
 
@@ -245,6 +396,7 @@ except Exception as e:
 # STATO GLOBALE E STORICO SESSIONI
 # ==========================================
 sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+send_lock = threading.Lock()
 
 is_recording_fai_tu = False
 recorded_notes_fai_tu = [] 
@@ -267,7 +419,8 @@ history_follow_sessions = []
 
 def send_to_unity(data_dict):
     msg = json.dumps(data_dict)
-    sock_send.sendto(msg.encode('utf-8'), (UDP_IP, PORT_TO_UNITY))
+    with send_lock:
+        sock_send.sendto(msg.encode('utf-8'), (UDP_IP, PORT_TO_UNITY))
 
 def get_note_color_rgb(note, velocity):
     v = max(0.0, min(1.0, velocity))
@@ -336,6 +489,11 @@ def scan_local_folder():
             continue
         info = parse_song_info(nome_file)
         query = nome_file.lower()
+        filepath = os.path.join(DESKTOP_PATH, nome_file)
+        safe, motivo = is_midi_safe_for_visualizer(filepath)
+        if not safe:
+            print(f"[SCAN CARTELLA] Brano a rischio saltato ({motivo}): {nome_file}")
+            continue
         try:
             c.execute(
                 "INSERT OR IGNORE INTO midi_files (query, filename, title, artist) VALUES (?, ?, ?, ?)",

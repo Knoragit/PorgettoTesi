@@ -27,6 +27,7 @@ public class SongListManager : MonoBehaviour
     // i bottoni mostrano SOLO i risultati della ricerca.
     private bool inRicerca = false;
     private string queryRicerca = "";
+    private bool inAttesaRicerca = false;
     private RectTransform contenitoreRicerca;
     private GameObject elencoAttivo;
     private GameObject tastieraAttiva;
@@ -135,9 +136,19 @@ public class SongListManager : MonoBehaviour
 
         if (gameManager.statoAttuale != statoPrecedente)
         {
+            GameManager.AppState statoInUscita = statoPrecedente;
             statoPrecedente = gameManager.statoAttuale;
             TerminaRicerca(false);
             AggiornaGruppoAttivo();
+
+            // Uscita dalle modalità esecutive (Osservatore/Seguimi): stop
+            // difensivo così riproduzione e colonne vengono sempre fermate,
+            // qualunque sia il percorso di navigazione verso il menu.
+            if (statoInUscita == GameManager.AppState.Osservatore ||
+                statoInUscita == GameManager.AppState.Seguimi)
+            {
+                FermaRiproduzione();
+            }
         }
     }
 
@@ -194,10 +205,14 @@ public class SongListManager : MonoBehaviour
         }
 
         // In modalità ricerca, se non c'è nessun match mostriamo un messaggio
-        // chiaro al posto di una lista vuota.
+        // chiaro al posto di una lista vuota. Durante il download online la
+        // ricerca può richiedere qualche secondo: mostriamo l'attesa.
         if (inRicerca && mostrati == 0)
         {
-            CreaMessaggio(elenco, "Nessun risultato per \"" + queryRicerca + "\"", targetList);
+            string testo = inAttesaRicerca
+                ? "Ricerca in corso..."
+                : "Nessun risultato per \"" + queryRicerca + "\"";
+            CreaMessaggio(elenco, testo, targetList);
         }
 
         RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
@@ -207,6 +222,8 @@ public class SongListManager : MonoBehaviour
     public void SearchResultRicevuta(string status, string filename, string title, string artist, string message)
     {
         if (gameManager == null) return;
+
+        inAttesaRicerca = false;
 
         if (status == "success" && filename != null)
         {
@@ -225,6 +242,13 @@ public class SongListManager : MonoBehaviour
         else
         {
             UnityEngine.Debug.LogWarning("[RICERCA] " + (string.IsNullOrEmpty(message) ? "Nessun risultato." : message));
+
+            // La ricerca online è terminata senza successo: aggiorna la lista così
+            // il messaggio "Ricerca in corso..." diventa "Nessun risultato...".
+            if (inRicerca && !string.IsNullOrEmpty(queryRicerca) && receiver != null)
+            {
+                receiver.InviaComandoSuggerimento(queryRicerca);
+            }
         }
 
         RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
@@ -249,6 +273,7 @@ public class SongListManager : MonoBehaviour
 
         queryRicerca = testo.Trim();
         inRicerca = true;
+        inAttesaRicerca = true;
 
         if (elencoAttivo != null)
         {
@@ -268,6 +293,7 @@ public class SongListManager : MonoBehaviour
     {
         inRicerca = false;
         queryRicerca = "";
+        inAttesaRicerca = false;
 
         if (tastieraAttiva != null) tastieraAttiva.SetActive(false);
         tastieraAttiva = null;
