@@ -7,14 +7,15 @@ public class PianoVisualizer : MonoBehaviour
     private class NoteState
     {
         public GameObject rootObject;     // Contenitore neutro (Scala 1:1)
-        public GameObject columnObject;   // Colonna mesh (si ridimensiona)
+        public GameObject columnObject;   // Sagoma colonna (si ridimensiona)
+        public Material columnMaterial;   // Materiale sagoma (sfumatura colore)
+        public ParticleSystem particles;  // Colonna di particelle (rombi)
         public GameObject textObject;     // Etichetta testo (proporzionata)
         public float currentHeight;
         public bool isPressed;
         public bool isLeftHand;
         public float releaseTimer;
         public float pressTimer;
-        public Material columnMaterial;
     }
 
     private Dictionary<int, NoteState> activeNotes = new Dictionary<int, NoteState>();
@@ -32,15 +33,37 @@ public class PianoVisualizer : MonoBehaviour
     [Header("Filo Articolazione Morbido")]
     private LineRenderer leftLineRenderer;
     private LineRenderer rightLineRenderer;
+    private LineRenderer leftHaloRenderer;
+    private LineRenderer rightHaloRenderer;
     public int risoluzioneCurva = 12;
     public float frecciaCurvaturaGravita = 0.05f;
+
+    [Header("Impostazioni Fili Di Luce")]
+    public float filoIntensita = 1.5f;
+    public float filoWidthCore = 0.004f;
+    public float filoWidthHalo = 0.015f;
+    public float filoHaloIntensita = 0.35f;
 
     [Header("Parametri di Decadimento Temporale")]
     public float durataDecadimentoRilascio = 1.0f;
     public float durataMaxNotaPremuta = 12.0f;
 
-    [Header("Mesh Colonna")]
+    [Header("Mesh Colonna (guide note attese)")]
     public Mesh columnMesh;
+
+    [Header("Sagoma Colonna")]
+    public float traslucenzaColonna = 0.5f;
+
+    [Header("Particelle Colonna (rombi)")]
+    public Mesh particleMesh;
+    public Material particleMaterial;
+    public float particleRate = 40f;
+    public int maxParticlesColonna = 300;
+    public float particleSize = 0.004f;
+    public float particleLifetime = 1.2f;
+    public float burstIntensita = 28f;
+    public float particellaLuminosita = 1.3f;
+    public float riempimentoSpacing = 0.008f;
 
     [Header("Impostazioni Nomi Note")]
     public bool usaNotazioneItaliana = true; // true = Do, Re, Mi | false = C, D, E
@@ -62,18 +85,60 @@ public class PianoVisualizer : MonoBehaviour
 
     private void InizializzaLineRenderers()
     {
-        leftLineRenderer = new GameObject("Linea_Morbida_Sinistra").AddComponent<LineRenderer>();
-        rightLineRenderer = new GameObject("Linea_Morbida_Destra").AddComponent<LineRenderer>();
-        ConfiguraLineRenderer(leftLineRenderer, Color.cyan);
-        ConfiguraLineRenderer(rightLineRenderer, Color.yellow);
+        leftLineRenderer = CreaLineRenderer("Linea_Morbida_Sinistra");
+        rightLineRenderer = CreaLineRenderer("Linea_Morbida_Destra");
+        leftHaloRenderer = CreaLineRenderer("Alone_Morbido_Sinistra");
+        rightHaloRenderer = CreaLineRenderer("Alone_Morbido_Destra");
+
+        ConfiguraLineRenderer(leftLineRenderer, Color.cyan, filoWidthCore, 1f);
+        ConfiguraLineRenderer(rightLineRenderer, Color.yellow, filoWidthCore, 1f);
+        ConfiguraLineRenderer(leftHaloRenderer, Color.cyan, filoWidthHalo, filoHaloIntensita);
+        ConfiguraLineRenderer(rightHaloRenderer, Color.yellow, filoWidthHalo, filoHaloIntensita);
     }
 
-    private void ConfiguraLineRenderer(LineRenderer lr, Color c)
+    private LineRenderer CreaLineRenderer(string nome)
     {
-        lr.startWidth = 0.004f; lr.endWidth = 0.004f;
-        lr.material = new Material(Shader.Find("Sprites/Default"));
-        lr.startColor = c; lr.endColor = c;
+        return new GameObject(nome).AddComponent<LineRenderer>();
+    }
+
+    private void ConfiguraLineRenderer(LineRenderer lr, Color c, float larghezza, float fattoreIntensita)
+    {
+        lr.material = CreaMaterialeFiloLuce(c, fattoreIntensita);
         lr.useWorldSpace = true;
+        lr.numCapVertices = 6;
+        lr.numCornerVertices = 4;
+        ApplicaProfiloLuce(lr, larghezza);
+    }
+
+    private Material CreaMaterialeFiloLuce(Color c, float fattoreIntensita)
+    {
+        Shader s = Shader.Find("Universal Render Pipeline/Unlit");
+        Material m = s != null ? new Material(s) : new Material(Shader.Find("Sprites/Default"));
+        if (s != null)
+        {
+            Color baseLuce = new Color(c.r * filoIntensita * fattoreIntensita, c.g * filoIntensita * fattoreIntensita, c.b * filoIntensita * fattoreIntensita, 1f);
+            m.SetColor("_BaseColor", baseLuce);
+            m.SetColor("_Color", baseLuce);
+            m.SetFloat("_Surface", 1);
+            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            m.SetInt("_ZWrite", 0);
+            m.DisableKeyword("_ALPHATEST_ON");
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.EnableKeyword("_BLENDMODE_ADD");
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+        return m;
+    }
+
+    private void ApplicaProfiloLuce(LineRenderer lr, float larghezzaBase)
+    {
+        lr.widthCurve = new AnimationCurve(
+            new Keyframe(0f, 0.25f),
+            new Keyframe(0.5f, 1f),
+            new Keyframe(1f, 0.25f)
+        );
+        lr.widthMultiplier = larghezzaBase;
     }
 
     public void ResetVisualizer()
@@ -88,6 +153,8 @@ public class PianoVisualizer : MonoBehaviour
         activeNotes.Clear();
         if (leftLineRenderer != null) leftLineRenderer.positionCount = 0;
         if (rightLineRenderer != null) rightLineRenderer.positionCount = 0;
+        if (leftHaloRenderer != null) leftHaloRenderer.positionCount = 0;
+        if (rightHaloRenderer != null) rightHaloRenderer.positionCount = 0;
         PulisciNoteAtteseVisive();
         Debug.Log("[VISUALIZER] Schermo pulito e colonne azzerate (incluse note attese).");
     }
@@ -181,15 +248,23 @@ public class PianoVisualizer : MonoBehaviour
             {
                 float spessore = IsTastoNero(kvp.Key) ? 0.009f : 0.016f;
 
-                state.columnObject.transform.localScale = new Vector3(spessore, state.currentHeight, spessore);
-                state.columnObject.transform.localPosition = new Vector3(0f, state.currentHeight * 0.5f, 0f);
+                if (state.columnObject != null)
+                {
+                    state.columnObject.transform.localScale = new Vector3(spessore, state.currentHeight, spessore);
+                    state.columnObject.transform.localPosition = new Vector3(0f, state.currentHeight * 0.5f, 0f);
+                }
+
+                if (state.particles != null)
+                {
+                    AggiornaShapeParticelle(state, kvp.Key, state.currentHeight);
+                }
             }
         }
 
         foreach (int id in toRemove) activeNotes.Remove(id);
 
-        DisegnaFiloGravitazionale(true, leftLineRenderer);
-        DisegnaFiloGravitazionale(false, rightLineRenderer);
+        DisegnaFiloGravitazionale(true, leftLineRenderer, leftHaloRenderer);
+        DisegnaFiloGravitazionale(false, rightLineRenderer, rightHaloRenderer);
     }
 
     public void OnNoteReceived(int note, float velocity, string action)
@@ -198,9 +273,11 @@ public class PianoVisualizer : MonoBehaviour
         {
             if (activeNotes.ContainsKey(note))
             {
-                activeNotes[note].isPressed = false;
-                activeNotes[note].releaseTimer = 0f;
-                activeNotes[note].pressTimer = 0f;
+                NoteState st = activeNotes[note];
+                st.isPressed = false;
+                st.releaseTimer = 0f;
+                st.pressTimer = 0f;
+                if (st.particles != null) st.particles.Stop();
             }
             return;
         }
@@ -213,16 +290,10 @@ public class PianoVisualizer : MonoBehaviour
             s.rootObject.transform.SetParent(this.transform, false);
             s.rootObject.transform.localPosition = new Vector3(CalcolaX(note), 0f, 0f);
 
-            s.columnObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            if (columnMesh != null) s.columnObject.GetComponent<MeshFilter>().mesh = columnMesh;
-
-            s.columnObject.transform.SetParent(s.rootObject.transform, false);
-            Destroy(s.columnObject.GetComponent<BoxCollider>());
-
-            s.columnMaterial = s.columnObject.GetComponent<Renderer>().material;
-            s.columnMaterial.shader = Shader.Find("Universal Render Pipeline/Unlit");
-
             s.isLeftHand = DeterminaMano(note, s.rootObject.transform.position);
+
+            CreaSagomaColonna(s);
+            ConfiguraColonnaParticelle(s);
 
             s.textObject = CreaEtichettaTesto(s.rootObject, ConvertiMidiInNomeNota(note), Color.white);
 
@@ -250,12 +321,34 @@ public class PianoVisualizer : MonoBehaviour
         velocityCalibrata = Mathf.Clamp01(velocityCalibrata);
         state.currentHeight = altezzaMassimaColonne * velocityCalibrata;
 
-        Color startColor = state.isLeftHand ? Color.cyan : Color.yellow;
-        Color endColor = state.isLeftHand ? Color.blue : Color.red;
-        state.columnMaterial.color = Color.Lerp(startColor, endColor, velocityCalibrata);
+        ColoraColonna(state, velocityCalibrata);
+
+        if (state.particles != null)
+        {
+            AggiornaShapeParticelle(state, note, state.currentHeight);
+
+            state.particles.Play();
+            float spessore = IsTastoNero(note) ? 0.009f : 0.016f;
+            int nx = Mathf.Max(1, Mathf.CeilToInt(spessore / riempimentoSpacing));
+            int ny = Mathf.Max(1, Mathf.CeilToInt(state.currentHeight / riempimentoSpacing));
+            int fillVolume = Mathf.Clamp(nx * nx * ny, 1, maxParticlesColonna);
+            state.particles.Emit(fillVolume);
+        }
     }
 
-    private void DisegnaFiloGravitazionale(bool isLeft, LineRenderer lr)
+    private void AggiornaShapeParticelle(NoteState state, int nota, float height)
+    {
+        if (state.particles == null) return;
+        float spessore = IsTastoNero(nota) ? 0.009f : 0.016f;
+        float hEff = Mathf.Max(0.004f, height);
+        var shape = state.particles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(spessore, hEff, spessore);
+        shape.position = new Vector3(0f, hEff * 0.5f, 0f);
+    }
+
+    private void DisegnaFiloGravitazionale(bool isLeft, LineRenderer lrCore, LineRenderer lrHalo)
     {
         noteFiltrateId.Clear();
         puntiControllo.Clear();
@@ -263,19 +356,24 @@ public class PianoVisualizer : MonoBehaviour
 
         foreach (var kvp in activeNotes)
         {
-            if (kvp.Value.isLeftHand == isLeft && kvp.Value.columnObject != null)
+            if (kvp.Value.isLeftHand == isLeft && kvp.Value.rootObject != null)
             {
                 noteFiltrateId.Add(kvp.Key);
             }
         }
 
-        if (noteFiltrateId.Count < 2) { lr.positionCount = 0; return; }
+        if (noteFiltrateId.Count < 2)
+        {
+            ApplicaSpline(lrCore, null);
+            ApplicaSpline(lrHalo, null);
+            return;
+        }
         noteFiltrateId.Sort();
 
         for (int i = 0; i < noteFiltrateId.Count; i++)
         {
             NoteState s = activeNotes[noteFiltrateId[i]];
-            Vector3 sommitaColonna = s.columnObject.transform.position + Vector3.up * (s.currentHeight * 0.5f);
+            Vector3 sommitaColonna = s.rootObject.transform.position + Vector3.up * s.currentHeight;
 
             if (i > 0)
             {
@@ -305,8 +403,130 @@ public class PianoVisualizer : MonoBehaviour
         }
         splinePunti.Add(puntiControllo[puntiControllo.Count - 2]);
 
-        lr.positionCount = splinePunti.Count;
-        for (int i = 0; i < splinePunti.Count; i++) lr.SetPosition(i, splinePunti[i]);
+        ApplicaSpline(lrCore, splinePunti);
+        ApplicaSpline(lrHalo, splinePunti);
+    }
+
+    private void ApplicaSpline(LineRenderer lr, List<Vector3> punti)
+    {
+        if (lr == null) return;
+        if (punti == null || punti.Count == 0) { lr.positionCount = 0; return; }
+        lr.positionCount = punti.Count;
+        for (int i = 0; i < punti.Count; i++) lr.SetPosition(i, punti[i]);
+    }
+
+    private void ConfiguraColonnaParticelle(NoteState s)
+    {
+        s.particles = s.rootObject.AddComponent<ParticleSystem>();
+
+        var main = s.particles.main;
+        main.loop = true;
+        main.playOnAwake = false;
+        main.startLifetime = particleLifetime;
+        main.startSpeed = 0f;
+        main.startSize = 0.5f;
+        main.maxParticles = maxParticlesColonna;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.startRotation3D = true;
+        main.startRotationX = 0f;
+        main.startRotationY = 0f;
+        main.startRotationZ = new ParticleSystem.MinMaxCurve(0f, 360f);
+        main.flipRotation = 0.5f;
+
+        var emission = s.particles.emission;
+        emission.enabled = true;
+        emission.rateOverTime = particleRate;
+
+        var shape = s.particles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(0.012f, 0.6f, 0.012f);
+
+        var renderer = s.particles.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Mesh;
+        Mesh mesh = CaricaMeshParticella();
+        if (mesh != null)
+        {
+            renderer.mesh = mesh;
+            main.startSize = CalcolaDimensioneParticella(mesh);
+        }
+        renderer.material = CreaMaterialeParticelle();
+    }
+
+    private float CalcolaDimensioneParticella(Mesh mesh)
+    {
+        float dimMax = Mathf.Max(1e-4f, Mathf.Max(
+            mesh.bounds.size.x,
+            Mathf.Max(mesh.bounds.size.y, mesh.bounds.size.z)));
+        return particleSize / dimMax;
+    }
+
+    private Mesh CaricaMeshParticella()
+    {
+        if (particleMesh != null) return particleMesh;
+        return Resources.Load<Mesh>("Models/Rhombus_Particle");
+    }
+
+    private Material CreaMaterialeParticelle()
+    {
+        if (particleMaterial != null) return particleMaterial;
+        Shader s = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        Material m = s != null ? new Material(s) : new Material(Shader.Find("Sprites/Default"));
+        if (s != null)
+        {
+            m.SetColor("_BaseColor", Color.white);
+            m.SetColor("_Color", Color.white);
+            m.SetFloat("_Surface", 1);
+            m.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            m.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            m.SetInt("_ZWrite", 0);
+            m.DisableKeyword("_ALPHATEST_ON");
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.EnableKeyword("_BLENDMODE_ADD");
+            m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+        return m;
+    }
+
+    private void ColoraColonna(NoteState state, float velocityCalibrata)
+    {
+        Color startColor = state.isLeftHand ? Color.cyan : Color.yellow;
+        Color endColor = state.isLeftHand ? Color.blue : Color.red;
+        Color coloreSfumato = Color.Lerp(startColor, endColor, velocityCalibrata);
+
+        if (state.columnMaterial != null)
+        {
+            state.columnMaterial.color = new Color(coloreSfumato.r, coloreSfumato.g, coloreSfumato.b, traslucenzaColonna);
+        }
+
+        if (state.particles != null)
+        {
+            var main = state.particles.main;
+            main.startColor = new ParticleSystem.MinMaxGradient(coloreSfumato, coloreSfumato * particellaLuminosita);
+        }
+    }
+
+    private void CreaSagomaColonna(NoteState s)
+    {
+        s.columnObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        if (columnMesh != null) s.columnObject.GetComponent<MeshFilter>().mesh = columnMesh;
+
+        s.columnObject.transform.SetParent(s.rootObject.transform, false);
+        Destroy(s.columnObject.GetComponent<BoxCollider>());
+
+        s.columnObject.transform.localScale = new Vector3(0.012f, 0.6f, 0.012f);
+
+        s.columnMaterial = s.columnObject.GetComponent<Renderer>().material;
+        Shader sh = Shader.Find("Universal Render Pipeline/Unlit");
+        if (sh != null) s.columnMaterial.shader = sh;
+        s.columnMaterial.SetFloat("_Surface", 1);
+        s.columnMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        s.columnMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        s.columnMaterial.SetInt("_ZWrite", 0);
+        s.columnMaterial.DisableKeyword("_ALPHATEST_ON");
+        s.columnMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        s.columnMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        s.columnMaterial.color = new Color(0.5f, 0.9f, 0.9f, traslucenzaColonna);
     }
 
     private Vector3 CalcolaCatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
