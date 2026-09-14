@@ -19,7 +19,7 @@ public class GameManager : MonoBehaviour
     public GameObject seguimiGroup;
     public GameObject faiTuGroup;
 
-    [Header("UI Specifica Modalità Fai Tu")]
+    [Header("UI Specifica Modalitï¿½ Fai Tu")]
     public GameObject faiTuBannerMessaggio;
     public GameObject faiTuReportMessaggio;
 
@@ -33,7 +33,7 @@ public class GameManager : MonoBehaviour
     private float ultimaVelocita = 0f;
     public int sfidaAttuale = 0;
 
-    // Gestione Note per la modalità "Seguimi"
+    // Gestione Note per la modalitï¿½ "Seguimi"
     private List<int> expectedNotes = new List<int>();
     private HashSet<int> userPressedNotes = new HashSet<int>();
 
@@ -97,7 +97,7 @@ public class GameManager : MonoBehaviour
 
         statoAttuale = nuovoStato;
 
-        // Visibilità pannelli
+        // Visibilitï¿½ pannelli
         if (calibrationGroup != null) calibrationGroup.SetActive(statoAttuale == AppState.Onboarding);
         if (menuGroup != null) menuGroup.SetActive(statoAttuale == AppState.Menu);
         if (tutorialGroup != null) tutorialGroup.SetActive(statoAttuale == AppState.Tutorial);
@@ -160,7 +160,7 @@ public class GameManager : MonoBehaviour
 
         if (faiTuReportMessaggio != null) faiTuReportMessaggio.SetActive(false);
 
-        // Ritorno automatico al Menù
+        // Ritorno automatico al Menï¿½
         AttivaMenu();
     }
 
@@ -181,9 +181,11 @@ public class GameManager : MonoBehaviour
         if (calibrator != null) calibrator.ResettaStatoCalibrazione();
     }
 
-    // --- RICEZIONE NOTE ATTESE DA PYTHON (MODALITÀ SEGUIMI) ---
+    // --- RICEZIONE NOTE ATTESE DA PYTHON (MODALITï¿½ SEGUIMI) ---
     public void ImpostaNoteAttese(int[] notes)
     {
+        if (statoAttuale != AppState.Seguimi) return;
+
         expectedNotes.Clear();
         if (notes != null && notes.Length > 0)
         {
@@ -251,7 +253,7 @@ public class GameManager : MonoBehaviour
                 case 1:
                     if (velocity < 0.236f)
                     {
-                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una scala crescente (note verso destra sempre più forti)"));
+                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una scala crescente (note verso destra sempre piï¿½ forti)"));
                     }
                     break;
 
@@ -328,7 +330,7 @@ public class GameManager : MonoBehaviour
     {
         inTransizione = true;
         sfidaAttuale = 0;
-        if (tutorialText != null) tutorialText.text = "<color=#00FF00><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al menù...";
+        if (tutorialText != null) tutorialText.text = "<color=#00FF00><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al menï¿½...";
 
         yield return new WaitForSeconds(3.5f);
         AttivaMenu();

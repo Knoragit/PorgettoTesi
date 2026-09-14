@@ -39,10 +39,10 @@ public class PianoVisualizer : MonoBehaviour
     public float frecciaCurvaturaGravita = 0.05f;
 
     [Header("Impostazioni Fili Di Luce")]
-    public float filoIntensita = 1.5f;
+    public float filoIntensita = 2.0f;
     public float filoWidthCore = 0.004f;
-    public float filoWidthHalo = 0.015f;
-    public float filoHaloIntensita = 0.35f;
+    public float filoWidthHalo = 0.02f;
+    public float filoHaloIntensita = 0.5f;
 
     [Header("Parametri di Decadimento Temporale")]
     public float durataDecadimentoRilascio = 1.0f;
@@ -57,12 +57,12 @@ public class PianoVisualizer : MonoBehaviour
     [Header("Particelle Colonna (rombi)")]
     public Mesh particleMesh;
     public Material particleMaterial;
-    public float particleRate = 40f;
+    public float particleRate = 80f;
     public int maxParticlesColonna = 300;
     public float particleSize = 0.004f;
     public float particleLifetime = 1.2f;
     public float burstIntensita = 28f;
-    public float particellaLuminosita = 1.3f;
+    public float particellaLuminosita = 1.6f;
     public float riempimentoSpacing = 0.008f;
 
     [Header("Impostazioni Nomi Note")]
@@ -134,9 +134,9 @@ public class PianoVisualizer : MonoBehaviour
     private void ApplicaProfiloLuce(LineRenderer lr, float larghezzaBase)
     {
         lr.widthCurve = new AnimationCurve(
-            new Keyframe(0f, 0.25f),
+            new Keyframe(0f, 0.35f),
             new Keyframe(0.5f, 1f),
-            new Keyframe(1f, 0.25f)
+            new Keyframe(1f, 0.35f)
         );
         lr.widthMultiplier = larghezzaBase;
     }
@@ -265,6 +265,17 @@ public class PianoVisualizer : MonoBehaviour
 
         DisegnaFiloGravitazionale(true, leftLineRenderer, leftHaloRenderer);
         DisegnaFiloGravitazionale(false, rightLineRenderer, rightHaloRenderer);
+
+        AggiornaPulsazioneFili();
+    }
+
+    private void AggiornaPulsazioneFili()
+    {
+        float pulsazione = activeNotes.Count > 0 ? 1f + 0.1f * Mathf.Sin(Time.time * 2f * Mathf.PI * 0.5f) : 1f;
+        if (leftLineRenderer != null) leftLineRenderer.widthMultiplier = filoWidthCore * pulsazione;
+        if (rightLineRenderer != null) rightLineRenderer.widthMultiplier = filoWidthCore * pulsazione;
+        if (leftHaloRenderer != null) leftHaloRenderer.widthMultiplier = filoWidthHalo * pulsazione;
+        if (rightHaloRenderer != null) rightHaloRenderer.widthMultiplier = filoWidthHalo * pulsazione;
     }
 
     public void OnNoteReceived(int note, float velocity, string action)
@@ -442,6 +453,14 @@ public class PianoVisualizer : MonoBehaviour
         shape.shapeType = ParticleSystemShapeType.Box;
         shape.scale = new Vector3(0.012f, 0.6f, 0.012f);
 
+        var noise = s.particles.noise;
+        noise.enabled = true;
+        noise.strength = 0.02f;
+        noise.frequency = 1.5f;
+        noise.octaveCount = 2;
+        noise.quality = ParticleSystemNoiseQuality.High;
+        noise.scrollSpeed = 0.5f;
+
         var renderer = s.particles.GetComponent<ParticleSystemRenderer>();
         renderer.renderMode = ParticleSystemRenderMode.Mesh;
         Mesh mesh = CaricaMeshParticella();
@@ -496,7 +515,8 @@ public class PianoVisualizer : MonoBehaviour
 
         if (state.columnMaterial != null)
         {
-            state.columnMaterial.color = new Color(coloreSfumato.r, coloreSfumato.g, coloreSfumato.b, traslucenzaColonna);
+            Color coloreFascio = coloreSfumato * 1.8f;
+            state.columnMaterial.color = new Color(coloreFascio.r, coloreFascio.g, coloreFascio.b, traslucenzaColonna);
         }
 
         if (state.particles != null)
@@ -521,10 +541,11 @@ public class PianoVisualizer : MonoBehaviour
         if (sh != null) s.columnMaterial.shader = sh;
         s.columnMaterial.SetFloat("_Surface", 1);
         s.columnMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        s.columnMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        s.columnMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.One);
         s.columnMaterial.SetInt("_ZWrite", 0);
         s.columnMaterial.DisableKeyword("_ALPHATEST_ON");
         s.columnMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        s.columnMaterial.EnableKeyword("_BLENDMODE_ADD");
         s.columnMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
         s.columnMaterial.color = new Color(0.5f, 0.9f, 0.9f, traslucenzaColonna);
     }
