@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -49,6 +50,7 @@ public class GameManager : MonoBehaviour
     void Start()
     {
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
+        CreaBottoneHomeTutorial();
     }
 
     private void ConfiguraStatoIniziale()
@@ -160,8 +162,61 @@ public class GameManager : MonoBehaviour
 
         if (faiTuReportMessaggio != null) faiTuReportMessaggio.SetActive(false);
 
-        // Ritorno automatico al Men�
+        // Ritorno automatico al Menu
         AttivaMenu();
+    }
+
+    private void CreaBottoneHomeTutorial()
+    {
+        if (tutorialGroup == null) return;
+
+        GameObject bottoneGO = new GameObject("TornaAlMenu", typeof(RectTransform));
+        bottoneGO.transform.SetParent(tutorialGroup.transform, false);
+
+        RectTransform rt = (RectTransform)bottoneGO.transform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(-500f, 500f);
+        rt.sizeDelta = new Vector2(400f, 200f);
+
+        Image sfondo = bottoneGO.AddComponent<Image>();
+        sfondo.sprite = CreaSpriteBianco();
+        sfondo.type = Image.Type.Sliced;
+
+        Button bottone = bottoneGO.AddComponent<Button>();
+        bottone.targetGraphic = sfondo;
+        bottone.onClick.AddListener(AttivaMenu);
+
+        GameObject labelGO = new GameObject("Testo", typeof(RectTransform));
+        labelGO.transform.SetParent(bottoneGO.transform, false);
+
+        RectTransform rtLabel = (RectTransform)labelGO.transform;
+        rtLabel.anchorMin = Vector2.zero;
+        rtLabel.anchorMax = Vector2.one;
+        rtLabel.offsetMin = Vector2.zero;
+        rtLabel.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.text = "Torna al Men\u00F9";
+        label.font = TMP_Settings.defaultFontAsset != null
+            ? TMP_Settings.defaultFontAsset
+            : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+        label.fontSize = 40;
+        label.color = new Color(0.19607843f, 0.19607843f, 0.19607843f, 1f);
+        label.alignment = TextAlignmentOptions.Center;
+        label.raycastTarget = true;
+    }
+
+    private Sprite CreaSpriteBianco()
+    {
+        Texture2D tex = new Texture2D(4, 4, TextureFormat.RGBA32, false);
+        Color[] px = tex.GetPixels();
+        for (int i = 0; i < px.Length; i++) px[i] = Color.white;
+        tex.SetPixels(px);
+        tex.Apply(false, true);
+        return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f),
+                             100f, 0, SpriteMeshType.FullRect, new Vector4(1, 1, 1, 1));
     }
 
     public void AvviaRiancoraggio()

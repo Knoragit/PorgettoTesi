@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using TMPro;
@@ -236,7 +237,66 @@ public class ManualAnchor : MonoBehaviour
         GameManager gm = FindFirstObjectByType<GameManager>();
         if (gm != null)
         {
-            gm.AttivaMenu();
+            StartCoroutine(AttivaMenuDopoCalibrazione());
+        }
+    }
+
+    private GameObject messaggioAncoraggio;
+
+    private IEnumerator AttivaMenuDopoCalibrazione()
+    {
+        // Messaggio runtime disegnato al centro del Canvas (dove poi compare il
+        // menu), senza toccare il pannello di calibrazione che a fine calibrazione
+        // viene spento (instructionalText.transform.parent.SetActive(false)).
+        MostraMessaggioAncoraggio();
+
+        yield return new WaitForSeconds(3.0f);
+
+        // Protezione: se nel frattempo e' partita una nuova calibrazione
+        // (Bottone Riancora), currentStep non e' piu' 3 e non apriamo il menu.
+        if (currentStep < 3)
+        {
+            NascondiMessaggioAncoraggio();
+            yield break;
+        }
+
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm != null) gm.AttivaMenu();
+
+        NascondiMessaggioAncoraggio();
+    }
+
+    private void MostraMessaggioAncoraggio()
+    {
+        NascondiMessaggioAncoraggio();
+        if (canvasTransform == null) return;
+
+        GameObject go = new GameObject("MessaggioAncoraggio", typeof(RectTransform));
+        go.transform.SetParent(canvasTransform, false);
+
+        RectTransform rt = (RectTransform)go.transform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(600f, 400f);
+
+        TextMeshProUGUI testo = go.AddComponent<TextMeshProUGUI>();
+        if (instructionalText != null) testo.font = instructionalText.font;
+        testo.fontSize = 30f;
+        testo.alignment = TextAlignmentOptions.Center;
+        testo.color = Color.white;
+        testo.text = "<color=#FFFF55><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
+
+        messaggioAncoraggio = go;
+    }
+
+    private void NascondiMessaggioAncoraggio()
+    {
+        if (messaggioAncoraggio != null)
+        {
+            Destroy(messaggioAncoraggio);
+            messaggioAncoraggio = null;
         }
     }
 
@@ -263,6 +323,8 @@ public class ManualAnchor : MonoBehaviour
         {
             instructionalText.transform.parent.gameObject.SetActive(true);
         }
+
+        NascondiMessaggioAncoraggio();
 
         this.gameObject.SetActive(true);
 

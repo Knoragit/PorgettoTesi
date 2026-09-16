@@ -401,9 +401,11 @@ public class SongListManager : MonoBehaviour
         ScrollRect scroll = scrollGO.AddComponent<ScrollRect>();
         scroll.horizontal = false;
         scroll.vertical = true;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.movementType = ScrollRect.MovementType.Elastic;
         scroll.inertia = true;
-        scroll.scrollSensitivity = 60f;
+        scroll.elasticity = 0.12f;
+        scroll.scrollSensitivity = 40f;
+        scroll.decelerationRate = 0.05f;
 
         // Viewport (maschera)
         GameObject vpGO = CrearGOFiglio(scrollGO.transform, "Viewport");
@@ -414,12 +416,50 @@ public class SongListManager : MonoBehaviour
         rtVp.offsetMax = Vector2.zero;
         rtVp.pivot = new Vector2(0.5f, 0.5f);
 
+        // Larghezza fissa della scrollbar visibile (unita canvas) e margine destro della viewport
+        const float SB_WIDTH = 8f;
+        rtVp.offsetMax = new Vector2(-SB_WIDTH, 0f);
+
         RectMask2D mask = vpGO.AddComponent<RectMask2D>();
 
         Image sfondoVp = vpGO.AddComponent<Image>();
         sfondoVp.sprite = bottoneSpr;
         sfondoVp.type = Image.Type.Sliced;
         sfondoVp.color = new Color(0.05f, 0.06f, 0.09f, 0.55f);
+
+        GameObject sbGO = CrearGOFiglio(scrollGO.transform, "Scrollbar");
+        RectTransform rtSb = (RectTransform)sbGO.transform;
+        rtSb.anchorMin = new Vector2(1f, 0f);
+        rtSb.anchorMax = new Vector2(1f, 1f);
+        rtSb.pivot = new Vector2(1f, 0.5f);
+        rtSb.anchoredPosition = Vector2.zero;
+        rtSb.sizeDelta = new Vector2(SB_WIDTH, 0f);
+
+        Image bgImg = sbGO.AddComponent<Image>();
+        bgImg.sprite = bottoneSpr;
+        bgImg.type = Image.Type.Sliced;
+        bgImg.color = new Color(1f, 1f, 1f, 0.10f);
+        bgImg.raycastPadding = new Vector4(-20f, 0f, -20f, 0f);
+
+        GameObject handleGO = CrearGOFiglio(sbGO.transform, "Handle");
+        RectTransform rtHandle = (RectTransform)handleGO.transform;
+        rtHandle.anchorMin = Vector2.zero;
+        rtHandle.anchorMax = Vector2.zero;
+        rtHandle.pivot = new Vector2(0.5f, 0.5f);
+        rtHandle.anchoredPosition = new Vector2(SB_WIDTH * 0.5f, 0f);
+        rtHandle.sizeDelta = new Vector2(SB_WIDTH, 0f);
+
+        Image handleImg = handleGO.AddComponent<Image>();
+        handleImg.sprite = bottoneSpr;
+        handleImg.type = Image.Type.Sliced;
+        handleImg.color = new Color(1f, 1f, 1f, 0.65f);
+        handleImg.raycastTarget = false;
+
+        ScrollbarVisuale sbVisuale = sbGO.AddComponent<ScrollbarVisuale>();
+        sbVisuale.scroll = scroll;
+        sbVisuale.handle = rtHandle;
+        sbVisuale.handleImg = handleImg;
+        sbVisuale.trackImg = bgImg;
 
         // Content (VerticalLayoutGroup + ContentSizeFitter)
         GameObject contentGO = CrearGOFiglio(vpGO.transform, "Content");
