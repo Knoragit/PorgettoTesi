@@ -302,6 +302,7 @@ public class PianoVisualizer : MonoBehaviour
             s.rootObject.transform.localPosition = new Vector3(CalcolaX(note), 0f, 0f);
 
             s.isLeftHand = DeterminaMano(note, s.rootObject.transform.position);
+            NotificaManoSeNecessario(note, s.isLeftHand);
 
             CreaSagomaColonna(s);
             ConfiguraColonnaParticelle(s);
@@ -554,6 +555,17 @@ public class PianoVisualizer : MonoBehaviour
     {
         float t2 = t * t; float t3 = t2 * t;
         return 0.5f * ((2f * p1) + (-p0 + p2) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2 + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
+    }
+
+    private void NotificaManoSeNecessario(int nota, bool manoSinistra)
+    {
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm == null) return;
+        if (gm.statoAttuale != GameManager.AppState.FaiTu && gm.statoAttuale != GameManager.AppState.Tutorial) return;
+
+        UdpReceiver receiver = FindFirstObjectByType<UdpReceiver>();
+        if (receiver == null) return;
+        receiver.InviaNotaDaFaiTu(nota, manoSinistra);
     }
 
     private bool DeterminaMano(int note, Vector3 posColonnaMondo)

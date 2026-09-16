@@ -340,6 +340,13 @@ public class UdpReceiver : MonoBehaviour
         InviaJsonAPython(json);
     }
 
+    public void InviaNotaDaFaiTu(int nota, bool manoSinistra)
+    {
+        string mano = manoSinistra ? "left" : "right";
+        string json = "{\"action\":\"note_hand\",\"note\":" + nota + ",\"hand\":\"" + mano + "\"}";
+        InviaJsonAPython(json);
+    }
+
     public void InviaComandoStop()
     {
         string json = "{\"action\":\"stop_song\"}";

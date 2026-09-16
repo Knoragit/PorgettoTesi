@@ -14,7 +14,6 @@ import numpy as np
 import mido
 import requests
 import re
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.patches as patches
@@ -401,6 +400,7 @@ send_lock = threading.Lock()
 is_recording_fai_tu = False
 recorded_notes_fai_tu = [] 
 active_pressed_notes = {}   
+fai_tu_nota_mano = {}   
 
 t_first_note_fai_tu = None
 t_last_note_fai_tu = None
@@ -422,9 +422,13 @@ def send_to_unity(data_dict):
     with send_lock:
         sock_send.sendto(msg.encode('utf-8'), (UDP_IP, PORT_TO_UNITY))
 
-def get_note_color_rgb(note, velocity):
+def get_note_color_rgb(note, velocity, hand=None):
     v = max(0.0, min(1.0, velocity))
-    if note < 60:
+    if hand is not None:
+        is_left = (hand == "left")
+    else:
+        is_left = (note < 60)
+    if is_left:
         return (0.0, 1.0 - v, 1.0)
     else:
         return (1.0, 0.92 * (1.0 - v), 0.0)
@@ -688,7 +692,8 @@ def midi_input_loop():
                         "note": note,
                         "vel": start_info["vel"],
                         "start": start_info["start"],
-                        "end": now
+                        "end": now,
+                        "hand": fai_tu_nota_mano.pop(note, None)
                     })
                     t_last_note_fai_tu = now
 
@@ -771,6 +776,153 @@ def play_observing_thread(filename):
 # ==========================================
 last_report_time = 0
 
+
+def compute_radar_metrics(notes, is_ref=False):
+    """Calcola le 5 metriche dell'impronta digitale (stesse formule della modalita' Fai Tu)."""
+    if not notes:
+        return [0.5, 0.0, 0.5, 0.0, 0.5]
+
+    t0 = min(n["start"] for n in notes)
+    data = []
+    for n in notes:
+        start = n["start"] - t0
+        if is_ref:
+            dur = max(0.05, n.get("dur", 0.1))
+        else:
+            dur = max(0.05, n.get("end", n["start"] + 0.1) - n["start"])
+        data.append({"note": n["note"], "vel": n["vel"], "start": start, "dur": dur})
+
+    velocities = [n["vel"] for n in data]
+    durations = [n["dur"] for n in data]
+    starts = sorted(n["start"] for n in data)
+
+    mean_vel = float(np.mean(velocities)) if velocities else 0.5
+    std_vel = float(np.std(velocities)) if len(velocities) > 1 else 0.0
+    mean_dur = float(np.mean(durations)) if durations else 0.2
+    iois = np.diff(starts) if len(starts) > 1 else [0.0]
+    std_ioi = float(np.std(iois)) if len(iois) > 1 else 0.0
+    vel_sx = [n["vel"] for n in data if n["note"] < 60]
+    vel_dx = [n["vel"] for n in data if n["note"] >= 60]
+    mean_sx = float(np.mean(vel_sx)) if vel_sx else 0.0
+    mean_dx = float(np.mean(vel_dx)) if vel_dx else 0.0
+
+    v1 = min(1.0, mean_vel * 1.2)
+    v2 = min(1.0, std_vel * 4.0)
+    v3 = min(1.0, mean_dur * 2.0)
+    v4 = min(1.0, std_ioi * 3.0)
+    v5 = min(1.0, (mean_dx / (mean_sx + 0.001)) * 0.5) if mean_sx > 0 else 0.5
+    return [v1, v2, v3, v4, v5]
+
+
+def classifica_articolazione(notes):
+    """Classifica ogni nota come legato/staccato/medio in base al gap verso il prossimo onset.
+    Ritorna (conteggi, etichette in ordine di ingresso)."""
+    if not notes:
+        return {"legato": 0, "staccato": 0, "medio": 0}, []
+
+    t0 = min(n["start"] for n in notes)
+    indexed = []
+    for idx, n in enumerate(notes):
+        start = n["start"] - t0
+        if "end" in n:
+            dur = max(0.05, n["end"] - n["start"])
+        else:
+            dur = max(0.05, n.get("dur", 0.1))
+        indexed.append([idx, start, dur])
+
+    indexed.sort(key=lambda x: x[1])
+    gaps = [indexed[i + 1][1] - indexed[i][1] for i in range(len(indexed) - 1) if indexed[i + 1][1] - indexed[i][1] > 0]
+    med_gap = float(np.median(gaps)) if gaps else 0.2
+
+    labels = [None] * len(notes)
+    counts = {"legato": 0, "staccato": 0, "medio": 0}
+    for i, (idx, start, dur) in enumerate(indexed):
+        if i + 1 < len(indexed):
+            gap = max(0.05, indexed[i + 1][1] - start)
+        else:
+            gap = max(0.05, med_gap)
+        ratio = dur / gap
+        if ratio >= 0.85:
+            tag = "legato"
+        elif ratio <= 0.55:
+            tag = "staccato"
+        else:
+            tag = "medio"
+        labels[idx] = tag
+        counts[tag] += 1
+    return counts, labels
+
+
+def allinea_note(usr_notes, ref_notes, tol=0.35, ref_window=None):
+    """Appaia le note utente e riferimento per pitch, in ordine cronologico, usando il
+    tempo relativo (ciascuna serie normalizzata al proprio inizio). Nota: le note utente
+    sono su tempo di parete (time.time()), quelle di riferimento su tempo del file MIDI,
+    quindi il confronto deve avvenire su base relativa, non su onset assoluti.
+    Se viene indicato ref_window (secondi, su base relativa del riferimento), il confronto
+    considera solo le note target entro quel tratto: così "mancate" misura le note della
+    guida nel periodo effettivamente eseguito, non dell'intero brano."""
+    if not usr_notes or not ref_notes:
+        return {"matched": 0, "missed": 0, "extra": 0, "vel_ratios": [], "dur_ratios": [], "onset_errors": []}
+
+    u_t0 = min(n["start"] for n in usr_notes)
+    r_t0 = min(n["start"] for n in ref_notes)
+
+    if ref_window is not None:
+        ref_notes = [r for r in ref_notes if (r["start"] - r_t0) <= ref_window]
+        if not ref_notes:
+            return {"matched": 0, "missed": 0, "extra": 0, "vel_ratios": [], "dur_ratios": [], "onset_errors": []}
+
+    usr_by_pitch = {}
+    for u in usr_notes:
+        usr_by_pitch.setdefault(u["note"], []).append([u["start"] - u_t0, u])
+    ref_by_pitch = {}
+    for r in ref_notes:
+        ref_by_pitch.setdefault(r["note"], []).append([r["start"] - r_t0, r])
+
+    for k in usr_by_pitch:
+        usr_by_pitch[k].sort(key=lambda x: x[0])
+    for k in ref_by_pitch:
+        ref_by_pitch[k].sort(key=lambda x: x[0])
+
+    matched = 0
+    extra = 0
+    vel_ratios = []
+    dur_ratios = []
+    onset_errors = []
+
+    for note, u_list in usr_by_pitch.items():
+        r_list = ref_by_pitch.get(note)
+        if not r_list:
+            extra += len(u_list)
+            continue
+        for i, (u_rel, u) in enumerate(u_list):
+            if i >= len(r_list):
+                extra += 1
+                continue
+            r_rel, rr = r_list[i]
+            err = abs(u_rel - r_rel)
+            if err > tol:
+                extra += 1
+                continue
+            matched += 1
+            ref_vel = max(0.001, rr["vel"])
+            usr_dur = max(0.05, u.get("end", u["start"] + 0.1) - u["start"])
+            ref_dur = max(0.05, rr.get("dur", 0.1))
+            vel_ratios.append(min(2.0, u["vel"] / ref_vel))
+            dur_ratios.append(min(2.0, usr_dur / ref_dur))
+            onset_errors.append(err)
+
+    missed = max(0, len(ref_notes) - matched)
+    return {
+        "matched": matched,
+        "missed": missed,
+        "extra": extra,
+        "vel_ratios": vel_ratios,
+        "dur_ratios": dur_ratios,
+        "onset_errors": onset_errors,
+    }
+
+
 def generate_unified_report():
     global last_report_time
     now = time.time()
@@ -795,9 +947,10 @@ def generate_unified_report():
     try:
         with PdfPages(pdf_filepath) as pdf:
             fig1 = plt.figure(figsize=(8.5, 11))
-            fig1.suptitle("Report - Modalità Fai Tu", fontsize=15, fontweight='bold', y=0.97)
+            fig1.text(0.5, 0.958, "REPORT · MODALITÀ FAI TU", ha='center', va='center', fontsize=15,
+                      fontweight='bold', bbox=dict(boxstyle='round,pad=0.45', facecolor='#f8f9fa', edgecolor='#0288d1', linewidth=1.4))
 
-            gs1 = fig1.add_gridspec(3, 1, height_ratios=[1.0, 1.2, 1.1], left=0.12, right=0.88, top=0.93, bottom=0.05, hspace=0.45)
+            gs1 = fig1.add_gridspec(3, 1, height_ratios=[1.3, 0.38, 1.0], left=0.12, right=0.88, top=0.90, bottom=0.05, hspace=0.45)
 
             if local_fai_tu_notes:
                 t0 = min(n["start"] for n in local_fai_tu_notes)
@@ -805,15 +958,14 @@ def generate_unified_report():
                     "note": n["note"],
                     "vel": n["vel"],
                     "start": n["start"] - t0,
-                    "end": n["end"] - t0
+                    "end": n["end"] - t0,
+                    "hand": n.get("hand")
                 } for n in local_fai_tu_notes]
 
                 velocities = [n["vel"] for n in notes_data]
-                durations = [max(0.05, n["end"] - n["start"]) for n in notes_data]
                 starts = sorted([n["start"] for n in notes_data])
 
                 std_vel = float(np.std(velocities)) if len(velocities) > 1 else 0.0
-                mean_vel = float(np.mean(velocities)) if velocities else 0.5
                 vel_sx = [n["vel"] for n in notes_data if n["note"] < 60]
                 vel_dx = [n["vel"] for n in notes_data if n["note"] >= 60]
                 mean_sx = float(np.mean(vel_sx)) if vel_sx else 0.0
@@ -821,7 +973,12 @@ def generate_unified_report():
                 
                 iois = np.diff(starts) if len(starts) > 1 else [0.0]
                 std_ioi = float(np.std(iois)) if len(iois) > 1 else 0.0
-                mean_dur = float(np.mean(durations)) if durations else 0.2
+
+                articol_counts, _ = classifica_articolazione(notes_data)
+                tot_art = max(1, articol_counts["legato"] + articol_counts["staccato"] + articol_counts["medio"])
+                pct_leg = 100.0 * articol_counts["legato"] / tot_art
+                pct_sta = 100.0 * articol_counts["staccato"] / tot_art
+                pct_med = 100.0 * articol_counts["medio"] / tot_art
 
                 ax1 = fig1.add_subplot(gs1[0])
                 ax1.set_title("Cromagramma dell'Esecuzione (Piano Roll)", fontsize=10, pad=8)
@@ -830,10 +987,11 @@ def generate_unified_report():
                     dur = max(0.1, n["end"] - n["start"])
                     if (n["start"] + dur) > max_end:
                         max_end = n["start"] + dur
-                    color = get_note_color_rgb(n["note"], n["vel"])
+                    color = get_note_color_rgb(n["note"], n["vel"], n.get("hand"))
                     rect = patches.Rectangle((n["start"], n["note"] - 0.4), dur, 0.8,
-                                             linewidth=0.5, edgecolor='black', facecolor=color)
+                                             linewidth=0.4, edgecolor='black', facecolor=color)
                     ax1.add_patch(rect)
+
                 ax1.set_xlim(0, max_end + 0.5)
                 ax1.set_ylim(20, 109)
                 ax1.set_ylabel("Pitch MIDI", fontsize=8)
@@ -841,29 +999,24 @@ def generate_unified_report():
                 ax1.tick_params(axis='both', labelsize=8)
                 ax1.grid(True, linestyle='--', alpha=0.3)
 
-                ax_radar = fig1.add_subplot(gs1[1], polar=True)
-                ax_radar.set_title("Impronta Digitale dell'Espressività (Firma Unica)", fontsize=10, pad=12)
-                
-                categories = ['Marcato\n(Peso)', 'Varietà\nDinamica', 'Articolazione\n(Legato)', 'Rubato\n(Flessibilità)', 'Bilanciamento\nMani']
-                N = len(categories)
-                
-                v1 = min(1.0, mean_vel * 1.2)
-                v2 = min(1.0, std_vel * 4.0)
-                v3 = min(1.0, mean_dur * 2.0)
-                v4 = min(1.0, std_ioi * 3.0)
-                v5 = min(1.0, (mean_dx / (mean_sx + 0.001)) * 0.5) if mean_sx > 0 else 0.5
-
-                values = [v1, v2, v3, v4, v5]
-                values += values[:1]
-
-                angles = [n / float(N) * 2 * np.pi for n in range(N)]
-                angles += angles[:1]
-
-                ax_radar.plot(angles, values, linewidth=2, linestyle='solid', color='#9b59b6')
-                ax_radar.fill(angles, values, color='#9b59b6', alpha=0.35)
-                ax_radar.set_xticks(angles[:-1])
-                ax_radar.set_xticklabels(categories, fontsize=7.5)
-                ax_radar.set_ylim(0, 1)
+                ax_leg = fig1.add_subplot(gs1[1])
+                ax_leg.axis('off')
+                v_g = np.linspace(0, 1, 150)
+                sx_rgb = np.stack([np.zeros(150), 1.0 - v_g, np.ones(150)], axis=1)[None, :, :]
+                dx_rgb = np.stack([np.ones(150), 0.92 * (1.0 - v_g), np.zeros(150)], axis=1)[None, :, :]
+                ax_leg.imshow(sx_rgb, extent=[0.20, 1.55, 0.80, 1.25], aspect='auto', interpolation='nearest')
+                ax_leg.imshow(dx_rgb, extent=[1.95, 3.30, 0.80, 1.25], aspect='auto', interpolation='nearest')
+                ax_leg.set_xlim(0.0, 3.6)
+                ax_leg.set_ylim(0.3, 1.7)
+                ax_leg.text(0.88, 1.45, "MANO SINISTRA", fontsize=7.5, ha='center', va='center', color='white',
+                            bbox=dict(facecolor='black', alpha=0.5, boxstyle='round,pad=0.18'))
+                ax_leg.text(2.63, 1.45, "MANO DESTRA", fontsize=7.5, ha='center', va='center', color='white',
+                            bbox=dict(facecolor='black', alpha=0.4, boxstyle='round,pad=0.18'))
+                ax_leg.text(0.20, 0.55, "piano", fontsize=7, color='dimgray', ha='center')
+                ax_leg.text(1.55, 0.55, "forte", fontsize=7, color='dimgray', ha='center')
+                ax_leg.text(1.95, 0.55, "piano", fontsize=7, color='dimgray', ha='center')
+                ax_leg.text(3.30, 0.55, "forte", fontsize=7, color='dimgray', ha='center')
+                ax_leg.set_title("Intensità per mano (hand tracking)", fontsize=8.5, pad=6, style='italic', color='dimgray')
 
                 ax2 = fig1.add_subplot(gs1[2])
                 ax2.axis('off')
@@ -888,21 +1041,15 @@ def generate_unified_report():
                     suggerimenti.append("Ottima flessibilità ritmica e naturalezza nel fraseggio (rubato).")
 
                 testo_completo = (
-                    "GUIDA ALL'INTERPRETAZIONE DELL'IMPRONTA DIGITALE:\n"
-                    "Il grafico polare mappa 5 dimensioni dello stile esecutivo (da 0.0 a 1.0):\n"
-                    "• Marcato (Peso): Intensità media del tocco.\n"
-                    "• Varietà Dinamica: Escursione e contrasto tra i piani e i forti.\n"
-                    "• Articolazione (Legato): Durata e sovrapposizione delle note.\n"
-                    "• Rubato (Flessibilità): Deviazione espressiva dal tempo metronomico.\n"
-                    "• Bilanciamento Mani: Peso relativo tra accompagnamento (SX) e melodia (DX).\n\n"
                     "FEEDBACK SULLA TUA ESECUZIONE:\n"
+                    f"• Articolazione: {pct_leg:.0f}% note legate · {pct_sta:.0f}% staccate · {pct_med:.0f}% mediane\n"
                     f"• Dinamica: {suggerimenti[0]}\n"
                     f"• Bilanciamento: {suggerimenti[1]}\n"
                     f"• Fraseggio: {suggerimenti[2]}"
                 )
 
                 ax2.text(0.0, 0.95, testo_completo, transform=ax2.transAxes, fontsize=8,
-                         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='#f8f9fa', edgecolor='#d3d3d3', alpha=0.9))
+                         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='#eef2f5', edgecolor='#c5d0d8', alpha=0.9))
             else:
                 ax = fig1.add_subplot(1, 1, 1)
                 ax.axis('off')
@@ -918,63 +1065,67 @@ def generate_unified_report():
                 ref_notes = session["reference_notes"]
                 usr_notes = session["user_notes"]
 
-                fig_song = plt.figure(figsize=(8.5, 11))
-                fig_song.suptitle(f"Analisi Comparativa #{s_idx}: Modalità Seguimi", fontsize=15, fontweight='bold', y=0.97)
-
-                gs_song = fig_song.add_gridspec(4, 1, height_ratios=[0.3, 1.0, 1.0, 1.1], left=0.12, right=0.88, top=0.93, bottom=0.05, hspace=0.40)
-
-                ax_info = fig_song.add_subplot(gs_song[0])
-                ax_info.axis('off')
-                info_text = f"BRANO: {title_info['title']}\nARTISTA: {title_info['artist']}"
-                ax_info.text(0.5, 0.5, info_text, transform=ax_info.transAxes, fontsize=11, fontweight='bold',
-                             horizontalalignment='center', verticalalignment='center',
-                             bbox=dict(boxstyle='round,pad=0.5', facecolor='#e1f5fe', edgecolor='#0288d1', alpha=0.9))
-
                 u_t0 = usr_notes[0]["start"]
                 max_u_t = max((n["start"] - u_t0) for n in usr_notes)
                 time_limit = max(max_u_t + 1.5, 5.0)
 
-                ax_target = fig_song.add_subplot(gs_song[1])
-                ax_target.set_title("1. Target (Brano Originale - Osservatore)", fontsize=10, pad=6)
+                # ═══ PAGINA 1: CROMAGRAMMI ═══
+                fig_crom = plt.figure(figsize=(8.5, 11))
+                fig_crom.text(0.5, 0.958,
+                              f"ANALISI COMPARATIVA #{s_idx} · MODALITÀ SEGUIMI",
+                              ha='center', va='center', fontsize=13, fontweight='bold',
+                              bbox=dict(boxstyle='round,pad=0.45', facecolor='#f8f9fa',
+                                        edgecolor='#0288d1', linewidth=1.4))
+                fig_crom.text(0.5, 0.932, f"{title_info['title']} — {title_info['artist']}",
+                              ha='center', va='center', fontsize=10, color='#555')
+
+                gs_crom = fig_crom.add_gridspec(2, 1, height_ratios=[1.0, 1.0],
+                                                left=0.12, right=0.88, top=0.90,
+                                                bottom=0.06, hspace=0.32)
+
+                ax_target = fig_crom.add_subplot(gs_crom[0])
+                ax_target.set_title("1. Target (Brano Originale - Osservatore)",
+                                    fontsize=10, pad=6)
                 if ref_notes:
                     for n in ref_notes:
                         if n["start"] <= time_limit:
                             dur = n.get("dur", 0.3)
                             color = get_note_color_rgb(n["note"], n["vel"])
-                            rect = patches.Rectangle((n["start"], n["note"] - 0.4), dur, 0.8, 
-                                                     facecolor=color, edgecolor=color, linewidth=0.1)
+                            rect = patches.Rectangle((n["start"], n["note"] - 0.4),
+                                                     dur, 0.8, facecolor=color,
+                                                     edgecolor=color, linewidth=0.1)
                             ax_target.add_patch(rect)
-                
                 ax_target.set_xlim(0, time_limit)
                 ax_target.set_ylim(20, 109)
-                ax_target.set_ylabel("Pitch", fontsize=8)
+                ax_target.set_ylabel("Pitch MIDI", fontsize=8)
                 ax_target.tick_params(axis='both', labelsize=8)
                 ax_target.grid(True, linestyle='--', alpha=0.3)
 
-                ax_user = fig_song.add_subplot(gs_song[2])
-                ax_user.set_title("2. Tua Esecuzione (Modalità Seguimi)", fontsize=10, pad=6)
+                ax_user = fig_crom.add_subplot(gs_crom[1])
+                ax_user.set_title("2. Tua Esecuzione (Modalità Seguimi)",
+                                  fontsize=10, pad=6)
                 for n in usr_notes:
                     t_rel = n["start"] - u_t0
                     dur = max(0.05, n.get("end", n["start"] + 0.3) - n["start"])
                     color = get_note_color_rgb(n["note"], n["vel"])
-                    rect = patches.Rectangle((t_rel, n["note"] - 0.4), dur, 0.8, 
-                                             facecolor=color, edgecolor='black', linewidth=0.3)
+                    rect = patches.Rectangle((t_rel, n["note"] - 0.4),
+                                             dur, 0.8, facecolor=color,
+                                             edgecolor='black', linewidth=0.3)
                     ax_user.add_patch(rect)
-
                 ax_user.set_xlim(0, time_limit)
                 ax_user.set_ylim(20, 109)
                 ax_user.set_xlabel("Tempo (secondi)", fontsize=8)
-                ax_user.set_ylabel("Pitch", fontsize=8)
+                ax_user.set_ylabel("Pitch MIDI", fontsize=8)
                 ax_user.tick_params(axis='both', labelsize=8)
                 ax_user.grid(True, linestyle='--', alpha=0.3)
 
-                ax_comp = fig_song.add_subplot(gs_song[3])
-                ax_comp.axis('off')
+                pdf.savefig(fig_crom)
+                plt.close(fig_crom)
 
-                ref_vel_mean = np.mean([n["vel"] for n in ref_notes]) if ref_notes else 0.5
-                usr_vel_mean = np.mean([n["vel"] for n in usr_notes]) if usr_notes else 0.5
+                # ═══ PAGINA 2: RADAR + TESTO + GUIDA ═══
+                ref_vel_mean = float(np.mean([n["vel"] for n in ref_notes])) if ref_notes else 0.5
+                usr_vel_mean = float(np.mean([n["vel"] for n in usr_notes])) if usr_notes else 0.5
                 diff_vel = usr_vel_mean - ref_vel_mean
-                
                 if diff_vel > 0.1:
                     commento_dinamica = "Tocco più marcato e incisivo rispetto all'originale."
                 elif diff_vel < -0.1:
@@ -982,10 +1133,9 @@ def generate_unified_report():
                 else:
                     commento_dinamica = "Dinamica e peso del tocco perfettamente in linea con il brano originale."
 
-                ref_dur_mean = np.mean([n.get("dur", 0.3) for n in ref_notes]) if ref_notes else 0.3
-                usr_dur_mean = np.mean([n["end"] - n["start"] for n in usr_notes]) if usr_notes else 0.3
+                ref_dur_mean = float(np.mean([n.get("dur", 0.3) for n in ref_notes])) if ref_notes else 0.3
+                usr_dur_mean = float(np.mean([n["end"] - n["start"] for n in usr_notes])) if usr_notes else 0.3
                 diff_dur = usr_dur_mean - ref_dur_mean
-
                 if diff_dur < -0.1:
                     commento_articolazione = "Esecuzione tendente allo staccato/sgranato (note più brevi del riferimento)."
                 elif diff_dur > 0.1:
@@ -995,25 +1145,121 @@ def generate_unified_report():
 
                 commento_tempo = "Ottima aderenza al ritmo e alla sequenza delle note guida." if len(usr_notes) > 5 else "Esecuzione parziale o con pause rilevanti."
 
-                text_comparativo = (
-                    f"VALUTAZIONE PRESTAZIONALE PER '{title_info['title'].upper()}':\n\n"
-                    f"• DINAMICA (VOLUME E TOCCO):\n"
-                    f"  - Target Velocity Media: {ref_vel_mean:.2f} | Tua Velocity Media: {usr_vel_mean:.2f}\n"
-                    f"  - Analisi: {commento_dinamica}\n\n"
-                    f"• ARTICOLAZIONE (STACCATO / LEGATO):\n"
-                    f"  - Durata Media Note Target: {ref_dur_mean:.2f}s | Tua Durata Media: {usr_dur_mean:.2f}s\n"
-                    f"  - Analisi: {commento_articolazione}\n\n"
-                    f"• TEMPO E RITMICA:\n"
-                    f"  - Analisi: {commento_tempo}\n\n"
-                    "SINTESI GENERALE:\n"
-                    "L'esecuzione mostra la capacità di adattarsi alla struttura del brano di riferimento "
-                    "mantenendo gli elementi espressivi personali dell'esecutore."
-                )
-                ax_comp.text(0.0, 0.95, text_comparativo, transform=ax_comp.transAxes, fontsize=8.5,
-                             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='#eef2f5', edgecolor='#c5d0d8', alpha=0.9))
+                align = allinea_note(usr_notes, ref_notes, ref_window=max_u_t)
+                if align["matched"] > 0:
+                    med_vel_ratio = float(np.median(align["vel_ratios"]))
+                    med_dur_ratio = float(np.median(align["dur_ratios"]))
+                    mean_onset_err = float(np.mean(align["onset_errors"]))
+                    pct_matched = 100.0 * align["matched"] / max(1, len(usr_notes))
+                    if med_dur_ratio < 0.9:
+                        commento_dur_allineamento = "più staccato dell'originale"
+                    elif med_dur_ratio > 1.1:
+                        commento_dur_allineamento = "più legato/sostenuto dell'originale"
+                    else:
+                        commento_dur_allineamento = "in linea con l'articolazione del target"
+                    if med_vel_ratio < 0.9:
+                        commento_vel_allineamento = "tocco più leggero del riferimento"
+                    elif med_vel_ratio > 1.1:
+                        commento_vel_allineamento = "tocco più forte e incisivo del riferimento"
+                    else:
+                        commento_vel_allineamento = "intensità in linea con il riferimento"
+                    blocco_allineamento = (
+                        f"• ALLINEAMENTO NOTA-PER-NOTA (tratto eseguito):\n"
+                        f"  Riconosciute: {align['matched']} su {len(usr_notes)} suonate ({pct_matched:.0f}%) → note che coincidono con la guida.\n"
+                        f"  Mancate: {align['missed']} → note della guida nel tratto eseguito che non hai suonato.\n"
+                        f"  Extra: {align['extra']} → note suonate in più rispetto alla guida proposta.\n"
+                        f"  Velocity relativa (mediana): {med_vel_ratio * 100:.0f}% del target → {commento_vel_allineamento}.\n"
+                        f"  Durata relativa (mediana): {med_dur_ratio * 100:.0f}% → {commento_dur_allineamento}.\n"
+                        f"  Errore medio di attacco: {mean_onset_err * 1000:.0f} ms → precisione temporale rispetto alla guida."
+                    )
+                else:
+                    blocco_allineamento = (
+                        "• ALLINEAMENTO NOTA-PER-NOTA (tratto eseguito):\n"
+                        "  Nessuna nota appaiabile al riferimento (esecuzione molto distante dalla guida)."
+                    )
 
-                pdf.savefig(fig_song)
-                plt.close(fig_song)
+                text_valutazione = (
+                    f"DINAMICA (VOLUME E TOCCO):\n"
+                    f"  Target: {ref_vel_mean:.2f} · Tuo: {usr_vel_mean:.2f}\n"
+                    f"  → {commento_dinamica}\n\n"
+                    f"ARTICOLAZIONE:\n"
+                    f"  Target: {ref_dur_mean:.2f}s · Tua: {usr_dur_mean:.2f}s\n"
+                    f"  → {commento_articolazione}\n\n"
+                    f"TEMPO E RITMICA:\n"
+                    f"  → {commento_tempo}\n\n"
+                    f"{blocco_allineamento}\n"
+                    f"SINTESI:\n"
+                    f"  L'esecuzione mostra la capacità di adattarsi alla struttura\n"
+                    f"  del brano di riferimento mantenendo gli elementi espressivi\n"
+                    f"  personali dell'esecutore."
+                )
+
+                fig_analisi = plt.figure(figsize=(8.5, 11))
+                fig_analisi.text(0.5, 0.958,
+                                 f"ANALISI COMPARATIVA #{s_idx} · MODALITÀ SEGUIMI",
+                                 ha='center', va='center', fontsize=13, fontweight='bold',
+                                 bbox=dict(boxstyle='round,pad=0.45', facecolor='#f8f9fa',
+                                           edgecolor='#0288d1', linewidth=1.4))
+                fig_analisi.text(0.5, 0.932, f"{title_info['title']} — {title_info['artist']}",
+                                 ha='center', va='center', fontsize=10, color='#555')
+
+                gs_a = fig_analisi.add_gridspec(4, 1,
+                    height_ratios=[0.25, 1.1, 1.8, 0.85],
+                    left=0.12, right=0.88, top=0.90, bottom=0.05, hspace=0.42)
+
+                # Radar centrato
+                gs_radar_row = gs_a[1].subgridspec(1, 3, width_ratios=[0.3, 1, 0.3], wspace=0.05)
+                ax_radar_cmp = fig_analisi.add_subplot(gs_radar_row[1], polar=True)
+
+                ref_metrics = compute_radar_metrics(ref_notes, is_ref=True)
+                usr_metrics_cmp = compute_radar_metrics(usr_notes)
+                cats_cmp = ['Marcato\n(Peso)', 'Varietà\nDinamica', 'Articolazione\n(Legato)',
+                            'Rubato\n(Flessibilità)', 'Bilanciamento\nMani']
+                NC = len(cats_cmp)
+                angs_cmp = [n / float(NC) * 2 * np.pi for n in range(NC)]
+                angs_cmp += angs_cmp[:1]
+
+                def disegna_sagoma(ax, valori, colore, label=None):
+                    vals = list(valori) + list(valori[:1])
+                    ax.plot(angs_cmp, vals, linewidth=1.8, color=colore, label=label)
+                    ax.fill(angs_cmp, vals, color=colore, alpha=0.22)
+
+                disegna_sagoma(ax_radar_cmp, ref_metrics, '#4a90e2', label='Target (Osservatore)')
+                disegna_sagoma(ax_radar_cmp, usr_metrics_cmp, '#9b59b6', label='Tua Esecuzione (Seguimi)')
+                ax_radar_cmp.set_xticks(angs_cmp[:-1])
+                ax_radar_cmp.set_xticklabels(cats_cmp, fontsize=7.5)
+                ax_radar_cmp.set_ylim(0, 1)
+                ax_radar_cmp.set_title("Impronta Digitale dell'Espressività: Target vs Tua Esecuzione",
+                                        fontsize=9.5, pad=14)
+                ax_radar_cmp.legend(loc='lower center', bbox_to_anchor=(0.5, -0.36), ncol=1, fontsize=6.5)
+
+                # Testo valutazione (full width)
+                ax_text = fig_analisi.add_subplot(gs_a[2])
+                ax_text.axis('off')
+                ax_text.text(0.0, 0.98, text_valutazione, transform=ax_text.transAxes,
+                             fontsize=7.5, verticalalignment='top', family='monospace',
+                             bbox=dict(boxstyle='round', facecolor='#eef2f5',
+                                       edgecolor='#c5d0d8', alpha=0.9))
+
+                # Guida impronta
+                ax_guida = fig_analisi.add_subplot(gs_a[3])
+                ax_guida.axis('off')
+                testo_guida = (
+                    "GUIDA ALL'IMPRONTA DIGITALE (scala 0-1):\n"
+                    "• Marcato = intensità media del tocco · 0 = tocco leggerissimo · 1 = tocco molto pesante\n"
+                    "• Varietà = escursione dinamica · 0 = dinamica piatta · 1 = massimo contrasto piano/forte\n"
+                    "• Articolazione = durata note · 0 = staccato brevissimo · 1 = note lunghe e legate (≥ 0.5s)\n"
+                    "• Rubato = flessibilità ritmica · 0 = tempo metronomico rigido · 1 = fraseggio molto libero\n"
+                    "• Bilanciamento = melodia vs accomp. · 0 = destra assente · 0.5 = mani bilanciate · 1 = dominante\n"
+                    "Blu = Target (Osservatore) · Viola = Tua Esecuzione (Seguimi)"
+                )
+                ax_guida.text(0.02, 0.95, testo_guida, transform=ax_guida.transAxes,
+                              fontsize=7.5, verticalalignment='top',
+                              bbox=dict(boxstyle='round', facecolor='#eef2f5',
+                                        edgecolor='#c5d0d8', alpha=0.9))
+
+                pdf.savefig(fig_analisi)
+                plt.close(fig_analisi)
 
         print(f"[REPORT OK] Generato correttamente in: {session_dir}")
         send_to_unity({"action": "report_ready", "file": pdf_filepath, "folder": session_dir})
@@ -1037,6 +1283,13 @@ def udp_command_listener():
             text = data.decode('utf-8')
             cmd = json.loads(text)
             action = cmd.get("action")
+
+            if action == "note_hand":
+                nota = cmd.get("note")
+                mano = cmd.get("hand")
+                if nota is not None and mano in ("left", "right"):
+                    fai_tu_nota_mano[int(nota)] = mano
+                continue
 
             if action == "play_song":
                 song_id = cmd.get("id")
