@@ -124,3 +124,5 @@ nora_database.db
 *.mid
 **/[Aa]ssets/_Recovery/
 **/[Aa]ssets/Resources/PerformanceTestRun*
+# Sessioni di gioco (generati localmente)
+Sessione_*/
