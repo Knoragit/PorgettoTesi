@@ -382,6 +382,37 @@ public class PianoVisualizer : MonoBehaviour
         }
         noteFiltrateId.Sort();
 
+        float chordThreshold = 0.08f;
+        HashSet<int> chordNoteIds = new HashSet<int>();
+        for (int i = 0; i < noteFiltrateId.Count; i++)
+        {
+            NoteState si = activeNotes[noteFiltrateId[i]];
+            for (int j = i + 1; j < noteFiltrateId.Count; j++)
+            {
+                NoteState sj = activeNotes[noteFiltrateId[j]];
+                if (Mathf.Abs(si.pressTimer - sj.pressTimer) < chordThreshold)
+                {
+                    chordNoteIds.Add(noteFiltrateId[i]);
+                    chordNoteIds.Add(noteFiltrateId[j]);
+                }
+            }
+        }
+
+        List<int> legatoIds = new List<int>();
+        foreach (int id in noteFiltrateId)
+        {
+            if (!chordNoteIds.Contains(id))
+                legatoIds.Add(id);
+        }
+
+        if (legatoIds.Count < 2)
+        {
+            ApplicaSpline(lrCore, null);
+            ApplicaSpline(lrHalo, null);
+            return;
+        }
+        noteFiltrateId = legatoIds;
+
         for (int i = 0; i < noteFiltrateId.Count; i++)
         {
             NoteState s = activeNotes[noteFiltrateId[i]];
