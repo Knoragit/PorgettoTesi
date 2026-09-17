@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.XR.ARFoundation;
+using UnityEngine.EventSystems;
 
 public class GameManager : MonoBehaviour
 {
@@ -70,6 +71,11 @@ public class GameManager : MonoBehaviour
     {
         if (statoAttuale == nuovoStato) return;
 
+        StartCoroutine(DeselezionaFineFrame());
+
+        SongListManager slm = FindFirstObjectByType<SongListManager>();
+        if (slm != null) slm.RilasciaIndietro();
+
         // Reset tracciamento note seguimi
         expectedNotes.Clear();
         userPressedNotes.Clear();
@@ -123,6 +129,13 @@ public class GameManager : MonoBehaviour
         if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(true);
         yield return new WaitForSeconds(5.0f);
         if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(false);
+    }
+
+    private IEnumerator DeselezionaFineFrame()
+    {
+        yield return null;
+        if (EventSystem.current != null)
+            EventSystem.current.SetSelectedGameObject(null);
     }
 
     // --- NAVIGAZIONE GLOBALE ---

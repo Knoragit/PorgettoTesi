@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using System.Collections.Generic;
 
 public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler,
     IPointerDownHandler, IPointerUpHandler, IPointerEnterHandler, IPointerExitHandler
@@ -21,6 +22,9 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
     private bool hovering = false;
     private float lastDragEventTime = 0f;
     private ScrollRect.MovementType savedMovementType;
+    private bool righeBloccate = false;
+    private readonly List<Graphic> righeGraphic = new List<Graphic>();
+    private readonly List<bool> righeOriginale = new List<bool>();
 
     private void Update()
     {
@@ -43,6 +47,7 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
             {
                 dragging = false;
                 hovering = false;
+                BloccaRaycastRighe(false);
                 scroll.vertical = true;
                 scroll.movementType = savedMovementType;
             }
@@ -68,6 +73,8 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
         savedMovementType = scroll.movementType;
         scroll.movementType = ScrollRect.MovementType.Unrestricted;
         scroll.vertical = false;
+        BloccaRaycastRighe(true);
+        RilasciaIndietroOra();
         AggiornaTargetDaEvento(eventData);
     }
 
@@ -83,6 +90,8 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
         hovering = false;
         scroll.vertical = true;
         scroll.movementType = savedMovementType;
+        BloccaRaycastRighe(false);
+        RilasciaIndietroOra();
     }
 
     public void OnPointerDown(PointerEventData eventData)
@@ -93,6 +102,7 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
         savedMovementType = scroll.movementType;
         scroll.movementType = ScrollRect.MovementType.Unrestricted;
         scroll.vertical = false;
+        BloccaRaycastRighe(true);
         AggiornaTargetDaEvento(eventData);
     }
 
@@ -102,6 +112,8 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
         hovering = false;
         scroll.vertical = true;
         scroll.movementType = savedMovementType;
+        BloccaRaycastRighe(false);
+        RilasciaIndietroOra();
     }
 
     public void OnPointerEnter(PointerEventData eventData)
@@ -127,6 +139,47 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
 
         float t = Mathf.Clamp01((local.y + h * 0.5f) / h);
         targetNorm = t;
+    }
+
+    // Disabilita/riabilita temporaneamente il raycast sulle righe della lista
+    // durante il drag della scrollbar, così l'highlight blu (enter) non si
+    // accende su tutte le canzoni che passano sotto il raggio stazionario.
+    private void BloccaRaycastRighe(bool bloccate)
+    {
+        if (scroll == null || scroll.content == null) return;
+
+        if (bloccate)
+        {
+            if (righeBloccate) return;
+            righeBloccate = true;
+            righeGraphic.Clear();
+            righeOriginale.Clear();
+            foreach (Graphic grafica in scroll.content.GetComponentsInChildren<Graphic>(true))
+            {
+                righeGraphic.Add(grafica);
+                righeOriginale.Add(grafica.raycastTarget);
+                grafica.raycastTarget = false;
+            }
+        }
+        else
+        {
+            if (!righeBloccate) return;
+            righeBloccate = false;
+            for (int i = 0; i < righeGraphic.Count; i++)
+            {
+                if (righeGraphic[i] != null)
+                    righeGraphic[i].raycastTarget = righeOriginale[i];
+            }
+            righeGraphic.Clear();
+            righeOriginale.Clear();
+        }
+    }
+
+    // Ogni uso della scrollbar pulisce lo stato evidenziato del bottone "Indietro".
+    private void RilasciaIndietroOra()
+    {
+        SongListManager slm = FindFirstObjectByType<SongListManager>();
+        if (slm != null) slm.RilasciaIndietro();
     }
 
     private bool ContenutoEccede()

@@ -52,7 +52,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     public void OnPointerUp(PointerEventData e)
     {
         premuto = false;
-        Applica(1.14f, ColoreHover);
+        Rilascia();
     }
 
     private void Rilascia()

@@ -21,6 +21,8 @@ public class PianoVisualizer : MonoBehaviour
     private Dictionary<int, NoteState> activeNotes = new Dictionary<int, NoteState>();
     private const float LARGHEZZA_TASTO_BIANCO = 0.0235f;
     private const int NOTA_INIZIALE_MIDI = 21; // La0 (A0)
+    private const int NOTA_MAX_MIDI = 108;     // Do8 (C8), cima del pianoforte a 88 tasti
+    private const int LIMITE_COLONNE_MASSIME = 64;
 
     private readonly int[] whiteKeyOffsets = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
 
@@ -280,6 +282,9 @@ public class PianoVisualizer : MonoBehaviour
 
     public void OnNoteReceived(int note, float velocity, string action)
     {
+        if (note < NOTA_INIZIALE_MIDI || note > NOTA_MAX_MIDI) return;
+        if (float.IsNaN(velocity) || float.IsInfinity(velocity)) velocity = 0f;
+
         if (action == "release")
         {
             if (activeNotes.ContainsKey(note))
@@ -295,6 +300,8 @@ public class PianoVisualizer : MonoBehaviour
 
         if (!activeNotes.ContainsKey(note))
         {
+            if (activeNotes.Count >= LIMITE_COLONNE_MASSIME) return;
+
             NoteState s = new NoteState();
 
             s.rootObject = new GameObject($"Nota_{note}");

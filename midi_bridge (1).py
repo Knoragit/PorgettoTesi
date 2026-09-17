@@ -104,14 +104,24 @@ def is_midi_safe_for_visualizer(filepath):
         mid = mido.MidiFile(filepath)
         pitches = set()
         note_msgs = 0
+        aperte = {}
+        picco_aperte = 0
         for msg in mid:
             if msg.type in ('note_on', 'note_off'):
                 note_msgs += 1
                 if msg.type == 'note_on' and msg.velocity > 0:
                     pitches.add(msg.note)
+                    aperte[msg.note] = True
+                    picco_aperte = max(picco_aperte, len(aperte))
+                else:
+                    aperte.pop(msg.note, None)
         seconds = max(0.001, mid.length)
         evt_s = note_msgs / seconds
 
+        if picco_aperte > 60:
+            return False, f"troppe note simultanee ({picco_aperte}) - wall of sound/sequencer non adatto"
+        if pitches and (min(pitches) < 21 or max(pitches) > 108):
+            return False, f"note fuori dal pianoforte a 88 tasti ({min(pitches)}..{max(pitches)}) - arrangiamento non adatto"
         if evt_s > 150.0:
             return False, f"flusso note estremo ({evt_s:.0f} evt/s) - rip/sequencer non adatto"
         if len(pitches) > 70 and evt_s > 60.0:

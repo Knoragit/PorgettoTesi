@@ -27,6 +27,11 @@ public class BranoDinamicoUI : MonoBehaviour
 
     private void AlClick()
     {
+        // Qualsiasi brano premuto ripulisce subito lo stato evidenziato del
+        // bottone "Indietro" (anche senza eventi di exit affidabili).
+        SongListManager slmReset = FindFirstObjectByType<SongListManager>();
+        if (slmReset != null) slmReset.RilasciaIndietro();
+
         PianoVisualizer visualizer = FindFirstObjectByType<PianoVisualizer>();
         if (visualizer != null)
         {

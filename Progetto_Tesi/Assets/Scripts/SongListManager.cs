@@ -20,6 +20,8 @@ public class SongListManager : MonoBehaviour
     private GameObject barraSeguimi;
     private RectTransform contenutoObserver;
     private RectTransform contenutoSeguimi;
+    private IndietroFeedback indietroObserver;
+    private IndietroFeedback indietroSeguimi;
     private readonly List<GameObject> bottoniObserver = new List<GameObject>();
     private readonly List<GameObject> bottoniSeguimi = new List<GameObject>();
 
@@ -82,7 +84,62 @@ public class SongListManager : MonoBehaviour
         RiallineaBottoni(contenitoreObserver, barraObserver, null);
         RiallineaBottoni(contenitoreSeguimi, null, barraSeguimi);
 
+        indietroObserver = AgganciaIndietro(contenitoreObserver);
+        indietroSeguimi = AgganciaIndietro(contenitoreSeguimi);
+
         AggiornaGruppoAttivo();
+    }
+
+    // Attiva il feedback manuale (verde solo a hover reale) sul bottone "Indietro"
+    // del gruppo, così non resta mai "appeso" dopo lo scroll della lista.
+    private IndietroFeedback AgganciaIndietro(RectTransform contenitore)
+    {
+        if (contenitore != null)
+        {
+            for (int i = 0; i < contenitore.childCount; i++)
+            {
+                Transform figlio = contenitore.GetChild(i);
+                if (figlio.name == "Bottone-Indietro")
+                {
+                    return figlio.gameObject.GetComponent<IndietroFeedback>()
+                        ?? figlio.gameObject.AddComponent<IndietroFeedback>();
+                }
+            }
+        }
+        return null;
+    }
+
+    // Riporta i bottoni "Indietro" e tutti i bottoni delle canzoni al loro colore
+    // base (defensivo: copre ogni refresh/ricerca/scroll che potrebbe aver lasciato
+    // uno stato evidenziato residuo, incluso il drag partito sopra una canzone).
+    public void RilasciaIndietro()
+    {
+        if (indietroObserver != null) indietroObserver.Rilascia();
+        if (indietroSeguimi != null) indietroSeguimi.Rilascia();
+        RilasciaCanzoni(bottoniObserver);
+        RilasciaCanzoni(bottoniSeguimi);
+    }
+
+    private static void RilasciaCanzoni(List<GameObject> lista)
+    {
+        for (int i = 0; i < lista.Count; i++)
+        {
+            if (lista[i] == null) continue;
+            IndietroFeedback fb = lista[i].GetComponent<IndietroFeedback>();
+            if (fb != null) fb.Rilascia();
+        }
+    }
+
+    // Riporta lo ScrollRect in cima: senza questo reset, se prima della ricerca ci si
+    // era fermati in fondo alla lista piena (48 brani), i risultati/messaggi (content
+    // corto, ancorato in alto) verrebbero renderizzati fuori dall'area della Viewport
+    // e resterebbero invisibili dietro la maschera.
+    private static void PortaScrollInCima(ScrollRect sr)
+    {
+        if (sr == null) return;
+        sr.verticalNormalizedPosition = 1f;
+        sr.StopMovement();
+        sr.velocity = Vector2.zero;
     }
 
     private void NascondiBottoniStatici(RectTransform contenitore)
@@ -173,7 +230,22 @@ public class SongListManager : MonoBehaviour
         List<GameObject> targetList;
         RectTransform elenco;
 
-        if (gameManager.statoAttuale == GameManager.AppState.Osservatore)
+        if (inRicerca && contenitoreRicerca != null)
+        {
+            // In ricerca i risultati vanno SEMPRE nel contenitore da cui è partita
+            // la ricerca (lo stato globale può non corrispondere al gruppo mostrato).
+            if (contenitoreRicerca == contenitoreSeguimi)
+            {
+                targetList = bottoniSeguimi;
+                elenco = contenutoSeguimi;
+            }
+            else
+            {
+                targetList = bottoniObserver;
+                elenco = contenutoObserver;
+            }
+        }
+        else if (gameManager.statoAttuale == GameManager.AppState.Osservatore)
         {
             targetList = bottoniObserver;
             elenco = contenutoObserver;
@@ -190,13 +262,32 @@ public class SongListManager : MonoBehaviour
 
         if (elenco == null) return;
 
-        // I suggerimenti live sostituiscono l'elenco, così mostriamo i risultati filtrati.
+        // I suggerimenti live sostituiscono l'elenco, così mostriamo i risultati
+        // filtrati. Per le liste complete (list_songs) mostriamo TUTTE le canzoni:
+        // il cap a 12 vale solo per i suggerimenti, altrimenti i brani nuovi in
+        // fondo alla lista non comparirebbero mai.
+        int maxMostrati = 0;
+        if (songs != null)
+            maxMostrati = suggest ? Mathf.Min(songs.Length, 12) : songs.Length;
+
+        RenderizzaLista(elenco, targetList, songs, maxMostrati);
+
+        RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
+        RiallineaBottoni(contenitoreSeguimi, barraObserver, barraSeguimi);
+
+        RilasciaIndietro();
+    }
+
+    // Renderizza una lista di canzoni nel contenitore indicato, distruggendo prima
+    // i vecchi bottoni/messaggi. In ricerca gestisce anche il messaggio di stato.
+    private void RenderizzaLista(RectTransform elenco, List<GameObject> targetList,
+                                 UdpReceiver.SongData[] songs, int maxMostrati)
+    {
         SvuotaBottoni(targetList);
 
         int mostrati = 0;
         if (songs != null)
         {
-            int maxMostrati = Mathf.Min(songs.Length, 12);
             for (int i = 0; i < maxMostrati; i++)
             {
                 CreaBottoneBrano(elenco, songs[i].title, songs[i].artist, songs[i].id, targetList, false);
@@ -215,8 +306,25 @@ public class SongListManager : MonoBehaviour
             CreaMessaggio(elenco, testo, targetList);
         }
 
+        if (inRicerca)
+        {
+            string gruppo = (targetList == bottoniObserver) ? "Osservatore" : "Seguimi";
+            ScrollRect sr = elenco.GetComponentInParent<ScrollRect>();
+            float vPos = sr != null ? sr.verticalNormalizedPosition : -1f;
+            float vpH = (sr != null && sr.viewport != null) ? sr.viewport.rect.height : 0f;
+            UnityEngine.Debug.Log("[RICERCA] mostrati " + mostrati + " risultati in " + gruppo
+                + " | scrollAttivo=" + (sr != null && sr.gameObject.activeInHierarchy)
+                + " vPos=" + vPos.ToString("F2")
+                + " contentRighe=" + elenco.childCount
+                + " viewportH=" + vpH.ToString("F1")
+                + " contentH=" + elenco.rect.height.ToString("F1"));
+            PortaScrollInCima(sr);
+        }
+
         RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
         RiallineaBottoni(contenitoreSeguimi, barraObserver, barraSeguimi);
+
+        RilasciaIndietro();
     }
 
     public void SearchResultRicevuta(string status, string filename, string title, string artist, string message)
@@ -280,7 +388,21 @@ public class SongListManager : MonoBehaviour
             LayoutElement leScorr = elencoAttivo.GetComponent<LayoutElement>();
             if (leScorr != null) leScorr.preferredHeight = altezzaScorrRicerca;
             elencoAttivo.SetActive(true);
+            PortaScrollInCima(elencoAttivo.GetComponent<ScrollRect>());
         }
+
+        // Feedback immediato: svuota la lista del contenitore di ricerca e mostra
+        // l'attesa mentre il bridge cerca nel DB locale e online. I risultati
+        // arrivati sostituiranno il messaggio (SvuotaBottoni lo rimuove).
+        List<GameObject> targetRicerca = bottoniObserver;
+        RectTransform elencoRicerca = contenutoObserver;
+        if (contenitoreRicerca == contenitoreSeguimi)
+        {
+            targetRicerca = bottoniSeguimi;
+            elencoRicerca = contenutoSeguimi;
+        }
+        SvuotaBottoni(targetRicerca);
+        if (elencoRicerca != null) CreaMessaggio(elencoRicerca, "Ricerca in corso...", targetRicerca);
 
         receiver.InviaComandoSuggerimento(queryRicerca);
         receiver.InviaComandoRicerca(queryRicerca);
@@ -309,6 +431,7 @@ public class SongListManager : MonoBehaviour
             LayoutElement leScorr = elencoAttivo.GetComponent<LayoutElement>();
             if (leScorr != null) leScorr.preferredHeight = altezzaScorrRicerca;
             elencoAttivo.SetActive(true);
+            PortaScrollInCima(elencoAttivo.GetComponent<ScrollRect>());
             elencoAttivo = null;
         }
 
@@ -317,6 +440,8 @@ public class SongListManager : MonoBehaviour
             if (receiver == null) receiver = FindFirstObjectByType<UdpReceiver>();
             if (receiver != null) receiver.InviaComandoListaSongs();
         }
+
+        RilasciaIndietro();
     }
 
     // Chiamata dai bottoni dei brani quando parte la riproduzione: esce dalla
@@ -409,6 +534,9 @@ public class SongListManager : MonoBehaviour
 
         // Viewport (maschera)
         GameObject vpGO = CrearGOFiglio(scrollGO.transform, "Viewport");
+        // Azzera canzoni e bottoni "Indietro" all'inizio e alla fine di ogni drag
+        // del contenuto (lo ScrollRect perde l'OnPointerUp della canzone premuta).
+        vpGO.AddComponent<ScrollDragReset>();
         RectTransform rtVp = (RectTransform)vpGO.transform;
         rtVp.anchorMin = Vector2.zero;
         rtVp.anchorMax = Vector2.one;
@@ -416,9 +544,11 @@ public class SongListManager : MonoBehaviour
         rtVp.offsetMax = Vector2.zero;
         rtVp.pivot = new Vector2(0.5f, 0.5f);
 
-        // Larghezza fissa della scrollbar visibile (unita canvas) e margine destro della viewport
+        // Corsia dedicata della scrollbar (unita canvas): separa la "presa" del
+        // pinch dai bottoni delle canzoni evitando ogni sovrapposizione.
+        const float SB_LANE = 24f;
         const float SB_WIDTH = 8f;
-        rtVp.offsetMax = new Vector2(-SB_WIDTH, 0f);
+        rtVp.offsetMax = new Vector2(-SB_LANE, 0f);
 
         RectMask2D mask = vpGO.AddComponent<RectMask2D>();
 
@@ -433,20 +563,20 @@ public class SongListManager : MonoBehaviour
         rtSb.anchorMax = new Vector2(1f, 1f);
         rtSb.pivot = new Vector2(1f, 0.5f);
         rtSb.anchoredPosition = Vector2.zero;
-        rtSb.sizeDelta = new Vector2(SB_WIDTH, 0f);
+        rtSb.sizeDelta = new Vector2(SB_LANE, 0f);
 
         Image bgImg = sbGO.AddComponent<Image>();
         bgImg.sprite = bottoneSpr;
         bgImg.type = Image.Type.Sliced;
         bgImg.color = new Color(1f, 1f, 1f, 0.10f);
-        bgImg.raycastPadding = new Vector4(-20f, 0f, -20f, 0f);
+        bgImg.raycastPadding = Vector4.zero;
 
         GameObject handleGO = CrearGOFiglio(sbGO.transform, "Handle");
         RectTransform rtHandle = (RectTransform)handleGO.transform;
         rtHandle.anchorMin = Vector2.zero;
         rtHandle.anchorMax = Vector2.zero;
         rtHandle.pivot = new Vector2(0.5f, 0.5f);
-        rtHandle.anchoredPosition = new Vector2(SB_WIDTH * 0.5f, 0f);
+        rtHandle.anchoredPosition = new Vector2(SB_LANE * 0.5f, 0f);
         rtHandle.sizeDelta = new Vector2(SB_WIDTH, 0f);
 
         Image handleImg = handleGO.AddComponent<Image>();
@@ -471,7 +601,7 @@ public class SongListManager : MonoBehaviour
         rtContent.sizeDelta = new Vector2(0f, 0f);
 
         VerticalLayoutGroup vlg = contentGO.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(4, 4, 4, 4);
+        vlg.padding = new RectOffset(2, 2, 2, 2);
         vlg.spacing = 4f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
@@ -549,6 +679,7 @@ public class SongListManager : MonoBehaviour
             // Appena si vuole cercare, fermiamo l'esecuzione in corso (colonne e
             // riproduzione) così non resta lo svolgimento di Osservatore/Seguimi.
             FermaRiproduzione();
+            RilasciaIndietro();
 
             if (!inRicerca)
             {
@@ -587,6 +718,7 @@ public class SongListManager : MonoBehaviour
                         LayoutElement leScorr = elencoAttivo.GetComponent<LayoutElement>();
                         if (leScorr != null) leScorr.preferredHeight = 90f;
                         elencoAttivo.SetActive(true);
+                        PortaScrollInCima(elencoAttivo.GetComponent<ScrollRect>());
                     }
                     input.ActivateInputField();
                 }
@@ -807,6 +939,9 @@ public class SongListManager : MonoBehaviour
     {
         if (input == null) return;
 
+        // Qualsiasi tasto della tastiera virtuale pulisce il bottone "Indietro".
+        RilasciaIndietro();
+
         switch (tasto)
         {
             case "BACK":
@@ -900,18 +1035,21 @@ public class SongListManager : MonoBehaviour
         colori.pressedColor = new Color(0.19f, 0.24f, 0.36f, 1f);
         btn.colors = colori;
 
+        // Hover manuale (niente ColorTint): evita che lo scroll illumini tutte le canzoni.
+        bottoneGO.AddComponent<IndietroFeedback>();
+
         GameObject labelGO = CrearGOFiglio(bottoneGO.transform, "Testo");
         RectTransform rtLabel = (RectTransform)labelGO.transform;
         rtLabel.anchorMin = Vector2.zero;
         rtLabel.anchorMax = Vector2.one;
-        rtLabel.offsetMin = new Vector2(8f, 2f);
-        rtLabel.offsetMax = new Vector2(-8f, -2f);
+        rtLabel.offsetMin = new Vector2(6f, 2f);
+        rtLabel.offsetMax = new Vector2(-6f, -2f);
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
         label.font = fontAsset;
         label.fontSize = 11;
         label.color = Color.white;
         label.alignment = TextAlignmentOptions.Left;
-        label.enableWordWrapping = true;
+        label.enableWordWrapping = false;
 
         BranoDinamicoUI dinamico = bottoneGO.AddComponent<BranoDinamicoUI>();
         dinamico.ImpostaBrano(titolo, autore, id, nuovoRisultato);

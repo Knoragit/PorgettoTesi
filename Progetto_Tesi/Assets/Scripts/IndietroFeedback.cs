@@ -1,0 +1,80 @@
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+
+// Feedback visivo per i bottoni (Indietro, canzoni, ecc.) che evita l'highlight
+// "a catena" durante lo scroll: disabilita la ColorTint di Unity (che lascia lo
+// stato evidenziato appeso) e gestisce il colore a mano, ignorando gli enter che
+// arrivano mentre un altro oggetto è già premuto (drag della scrollbar/contenuto).
+[RequireComponent(typeof(Button))]
+public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,
+                                IPointerDownHandler, IPointerUpHandler
+{
+    private Image img;
+    private Button btn;
+    private Color coloreBase;
+    private Color coloreHover;
+    private bool premuto = false;
+
+    void Start()
+    {
+        img = GetComponent<Image>();
+        btn = GetComponent<Button>();
+        if (btn != null)
+        {
+            coloreHover = btn.colors.highlightedColor;
+            btn.transition = Selectable.Transition.None;
+        }
+        if (img != null) coloreBase = img.color;
+    }
+
+    void OnEnable()
+    {
+        Rilascia();
+    }
+
+    void OnDisable()
+    {
+        Rilascia();
+    }
+
+    public void OnPointerEnter(PointerEventData e)
+    {
+        if (!premuto && !AltroPremuto(e)) Applica(coloreHover);
+    }
+
+    public void OnPointerExit(PointerEventData e)
+    {
+        if (!premuto) Rilascia();
+    }
+
+    public void OnPointerDown(PointerEventData e)
+    {
+        premuto = true;
+        Applica(coloreHover);
+    }
+
+    public void OnPointerUp(PointerEventData e)
+    {
+        premuto = false;
+        Rilascia();
+    }
+
+    public void Rilascia()
+    {
+        premuto = false;
+        if (img != null) img.color = coloreBase;
+    }
+
+    private void Applica(Color colore)
+    {
+        if (img != null) img.color = colore;
+    }
+
+    // Se il raggio sta premendo/trascinando un altro oggetto (es. la scrollbar o
+    // il contenuto scorrevole), gli enter su questo bottone non devono illuminarlo.
+    private bool AltroPremuto(PointerEventData e)
+    {
+        return e.pointerPress != null && e.pointerPress != gameObject;
+    }
+}
