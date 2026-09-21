@@ -43,6 +43,90 @@ public class GameManager : MonoBehaviour
     private Coroutine faiTuBannerCoroutine;
     private Coroutine reportFeedbackCoroutine;
 
+    // Sprite e materiale condivisi da TUTTI i bottoni (forma e aspetto uniformi).
+    // Vengono ricavati dai bottoni statici della scena (menu/FaiTu) che usano la
+    // sprite UI arrotondata built-in e il materiale di testo con ombra.
+    private static Sprite sprArrotondato;
+    private static Material matOmbra;
+
+    public static Sprite SpriteArrotondato
+    {
+        get
+        {
+            if (sprArrotondato == null) sprArrotondato = TrovaSpriteArrotondata();
+            return sprArrotondato;
+        }
+    }
+
+    public static Material MaterialeTesto
+    {
+        get
+        {
+            if (matOmbra == null) matOmbra = TrovaMaterialeOmbra();
+            return matOmbra;
+        }
+    }
+
+    private static Sprite TrovaSpriteArrotondata()
+    {
+        Image[] immagini = FindObjectsByType<Image>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+
+        // 1) La sprite di un bottone "Torna al Menù"/"Indietro" statico: e' il
+        //    riferimento visivo che l'utente confronta con quello del tutorial.
+        string[] nomiTorna = { "TornaAlMen\u00F9", "Bottone-Indietro", "GeneraReport" };
+        foreach (Image img in immagini)
+        {
+            if (img.sprite == null) continue;
+            foreach (string nome in nomiTorna)
+            {
+                if (img.gameObject.name == nome) return img.sprite;
+            }
+        }
+
+        // 2) Lo sfondo di un Button qualsiasi.
+        Button[] bottoni = FindObjectsByType<Button>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (Button b in bottoni)
+        {
+            Image im = b.targetGraphic as Image;
+            if (im != null && im.sprite != null && im.sprite.name == "UISprite") return im.sprite;
+        }
+        foreach (Button b in bottoni)
+        {
+            Image im = b.targetGraphic as Image;
+            if (im != null && im.sprite != null && im.sprite.border != Vector4.zero) return im.sprite;
+        }
+
+        // 3) Qualunque Image con una sprite arrotondata.
+        foreach (Image img in immagini)
+        {
+            if (img.sprite != null && img.sprite.name == "UISprite") return img.sprite;
+        }
+        foreach (Image img in immagini)
+        {
+            if (img.sprite != null && img.sprite.border != Vector4.zero) return img.sprite;
+        }
+        return null;
+    }
+
+    private static Material TrovaMaterialeOmbra()
+    {
+        TextMeshProUGUI[] testi = FindObjectsByType<TextMeshProUGUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (TextMeshProUGUI t in testi)
+        {
+            Material m = t.fontSharedMaterial;
+            if (m != null && m.name.Contains("Drop Shadow")) return m;
+        }
+        return null;
+    }
+
+    // Applica a una label dei bottoni lo stile uniforme: grassetto + ombra.
+    public static void ApplicaStileTesto(TextMeshProUGUI label)
+    {
+        if (label == null) return;
+        label.fontStyle = FontStyles.Bold;
+        if (MaterialeTesto != null) label.fontSharedMaterial = MaterialeTesto;
+    }
+
     private void Awake()
     {
         ConfiguraStatoIniziale();
@@ -52,10 +136,116 @@ public class GameManager : MonoBehaviour
     {
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
         CreaBottoneHomeTutorial();
+        IngrandisciBottoniUI();
 
         GameObject raggioGO = new GameObject("RaggioPuntatore");
         raggioGO.transform.SetParent(this.transform, false);
         raggioGO.AddComponent<RaggioPuntatore>();
+
+        StartCoroutine(UniformaBottoniTornaDopoFrame());
+    }
+
+    // Rende il bottone "Torna al Menù" identico in tutte le modalità: copia lo
+    // stile di quello di FaiTu (gruppo x1, riferimento) su Tutorial/Osservatore/
+    // Seguimi. Aspetta un frame perché SongListManager posiziona e aggancia i suoi
+    // "Bottone-Indietro" nel proprio Start().
+    private IEnumerator UniformaBottoniTornaDopoFrame()
+    {
+        yield return null;
+        UniformaBottoniTorna();
+    }
+
+    private void UniformaBottoniTorna()
+    {
+        if (faiTuGroup == null) return;
+        Transform rif = faiTuGroup.transform.Find("TornaAlMen\u00F9");
+        if (rif == null) return;
+
+        if (tutorialGroup != null)
+        {
+            Transform t = tutorialGroup.transform.Find("TornaAlMenu");
+            CopiaStileBottoneTorna(t, rif);
+
+            // Nel tutorial il testo va su due righe esplicite ("Torna al" / "Menù").
+            TextMeshProUGUI txtTutorial = t != null
+                ? t.GetComponentInChildren<TextMeshProUGUI>(true) : null;
+            if (txtTutorial != null) txtTutorial.text = "Torna al\nMen\u00F9";
+        }
+
+        CopiaStileBottoneTorna(TrovaFiglio(observerGroup, "Bottone-Indietro"), rif);
+        CopiaStileBottoneTorna(TrovaFiglio(seguimiGroup, "Bottone-Indietro"), rif);
+    }
+
+    private static Transform TrovaFiglio(GameObject gruppo, string nome)
+    {
+        if (gruppo == null) return null;
+        for (int i = 0; i < gruppo.transform.childCount; i++)
+        {
+            Transform f = gruppo.transform.GetChild(i);
+            if (f.name == nome) return f;
+        }
+        return null;
+    }
+
+    // Copia forma, colori ed etichetta del bottone di riferimento sul target,
+    // compensando la diversa scala dei gruppi (FaiTu x1, Osservatore/Seguimi x4).
+    private static void CopiaStileBottoneTorna(Transform target, Transform riferimento)
+    {
+        if (target == null || riferimento == null) return;
+
+        float scalaRif = riferimento.lossyScale.x;
+        float comp = (scalaRif != 0f) ? target.lossyScale.x / scalaRif : 1f;
+        if (comp <= 0f) comp = 1f;
+
+        Image imgRif = riferimento.GetComponent<Image>();
+        Image imgDst = target.GetComponent<Image>();
+        if (imgRif != null && imgDst != null)
+        {
+            imgDst.sprite = imgRif.sprite;
+            imgDst.type = imgRif.type;
+            imgDst.color = imgRif.color;
+            imgDst.material = imgRif.material;
+            imgDst.pixelsPerUnitMultiplier = imgRif.pixelsPerUnitMultiplier * comp;
+        }
+
+        Button btnRif = riferimento.GetComponent<Button>();
+        Button btnDst = target.GetComponent<Button>();
+        if (btnRif != null && btnDst != null) btnDst.colors = btnRif.colors;
+
+        TextMeshProUGUI txtRif = riferimento.GetComponentInChildren<TextMeshProUGUI>(true);
+        TextMeshProUGUI txtDst = target.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (txtRif != null && txtDst != null)
+        {
+            txtDst.font = txtRif.font;
+            txtDst.fontSharedMaterial = txtRif.fontSharedMaterial;
+            txtDst.color = txtRif.color;
+            txtDst.fontStyle = txtRif.fontStyle;
+            txtDst.alignment = txtRif.alignment;
+            txtDst.text = txtRif.text;
+            txtDst.fontSize = txtRif.fontSize / comp;
+        }
+    }
+
+    private void IngrandisciBottoniUI()
+    {
+        if (menuGroup != null)
+        {
+            foreach (Transform figlio in menuGroup.transform)
+                figlio.localScale = Vector3.one * 1.15f;
+        }
+
+        if (faiTuGroup != null)
+        {
+            foreach (Transform figlio in faiTuGroup.transform)
+            {
+                if (figlio.name == "TornaAlMen\u00F9" || figlio.name == "GeneraReport")
+                {
+                    RectTransform rt = (RectTransform)figlio;
+                    rt.sizeDelta = new Vector2(460f, 230f);
+                    ApplicaStileTesto(figlio.GetComponentInChildren<TextMeshProUGUI>(true));
+                }
+            }
+        }
     }
 
     private void ConfiguraStatoIniziale()
@@ -195,10 +385,10 @@ public class GameManager : MonoBehaviour
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = new Vector2(-500f, 500f);
-        rt.sizeDelta = new Vector2(400f, 200f);
+        rt.sizeDelta = new Vector2(460f, 230f);
 
         Image sfondo = bottoneGO.AddComponent<Image>();
-        sfondo.sprite = CreaSpriteBianco();
+        sfondo.sprite = SpriteArrotondato != null ? SpriteArrotondato : CreaSpriteBianco();
         sfondo.type = Image.Type.Sliced;
 
         Button bottone = bottoneGO.AddComponent<Button>();
@@ -215,14 +405,15 @@ public class GameManager : MonoBehaviour
         rtLabel.offsetMax = Vector2.zero;
 
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.text = "Torna al Men\u00F9";
+        label.text = "Torna al\nMen\u00F9";
         label.font = TMP_Settings.defaultFontAsset != null
             ? TMP_Settings.defaultFontAsset
             : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
-        label.fontSize = 40;
+        label.fontSize = 72;
         label.color = new Color(0.19607843f, 0.19607843f, 0.19607843f, 1f);
         label.alignment = TextAlignmentOptions.Center;
         label.raycastTarget = true;
+        ApplicaStileTesto(label);
     }
 
     private Sprite CreaSpriteBianco()

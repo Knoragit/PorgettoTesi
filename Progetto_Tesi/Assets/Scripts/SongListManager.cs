@@ -35,6 +35,9 @@ public class SongListManager : MonoBehaviour
     private GameObject tastieraAttiva;
     private float larghezzaOrigRicerca = 100f;
     private float altezzaScorrRicerca = 300f;
+    private Vector2 posOrigRicerca = Vector2.zero;
+    private float indietroLocXOrig = -125f;
+    private const float LARGHEZZA_RICERCA = 160f;
 
     private GameManager.AppState statoPrecedente = GameManager.AppState.Onboarding;
 
@@ -60,15 +63,21 @@ public class SongListManager : MonoBehaviour
                 ? TMP_Settings.defaultFontAsset
                 : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
 
-        Sprite bianco = CreaSpriteBianco();
-        bottoneSpr = bianco;
-        campoSpr = bianco;
+        // Forma arrotondata uguale a quella dei bottoni statici (menu/FaiTu).
+        Sprite arrotondato = GameManager.SpriteArrotondato != null
+            ? GameManager.SpriteArrotondato
+            : CreaSpriteBianco();
+        bottoneSpr = arrotondato;
+        campoSpr = arrotondato;
 
         NascondiBottoniStatici(contenitoreObserver);
         NascondiBottoniStatici(contenitoreSeguimi);
 
         PreparaContenitore(contenitoreObserver);
         PreparaContenitore(contenitoreSeguimi);
+
+        PosizionaIndietro(contenitoreObserver);
+        PosizionaIndietro(contenitoreSeguimi);
 
         if (contenitoreObserver != null)
         {
@@ -174,6 +183,72 @@ public class SongListManager : MonoBehaviour
         if (csf == null) csf = contenitore.gameObject.AddComponent<ContentSizeFitter>();
         csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        // Gruppo piu' largo (400 -> 500 unita' mondo) cosi' bottoni brano,
+        // barra di ricerca e tasti sono piu' comodi da premere col pinch.
+        contenitore.sizeDelta = new Vector2(125f, contenitore.sizeDelta.y);
+    }
+
+    // Porta il bottone "Indietro" del gruppo in alto a sinistra, nella stessa
+    // posizione/dimensione usata da FaiTu e Tutorial (angolo -500,500; 460x230
+    // mondo). Il VerticalLayoutGroup lo ignora: niente piu' in fondo alla lista.
+    private void PosizionaIndietro(RectTransform contenitore)
+    {
+        if (contenitore == null) return;
+
+        for (int i = 0; i < contenitore.childCount; i++)
+        {
+            Transform figlio = contenitore.GetChild(i);
+            if (figlio.name != "Bottone-Indietro") continue;
+
+            RectTransform rt = (RectTransform)figlio;
+            LayoutElement le = figlio.GetComponent<LayoutElement>();
+            if (le == null) le = figlio.gameObject.AddComponent<LayoutElement>();
+            le.ignoreLayout = true;
+
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(-125f, 125f);
+            rt.sizeDelta = new Vector2(115f, 57.5f);
+
+            // Stesso raggio degli angoli dei bottoni "Torna al Menù" delle altre
+            // modalità: il gruppo e' scalato x4, quindi il moltiplicatore va
+            // aumentato (x4) per ridurre il bordo e pareggiare il raggio di FaiTu.
+            Image imgIndietro = figlio.GetComponent<Image>();
+            if (imgIndietro != null) imgIndietro.pixelsPerUnitMultiplier = 4f;
+
+            TextMeshProUGUI label = figlio.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (label != null)
+            {
+                label.fontSize = 18f;
+                GameManager.ApplicaStileTesto(label);
+            }
+            break;
+        }
+    }
+
+    private static RectTransform TrovaIndietro(RectTransform contenitore)
+    {
+        if (contenitore == null) return null;
+        for (int i = 0; i < contenitore.childCount; i++)
+        {
+            Transform figlio = contenitore.GetChild(i);
+            if (figlio.name == "Bottone-Indietro") return (RectTransform)figlio;
+        }
+        return null;
+    }
+
+    private static float LeggiIndietroX(RectTransform contenitore)
+    {
+        RectTransform rt = TrovaIndietro(contenitore);
+        return rt != null ? rt.anchoredPosition.x : -125f;
+    }
+
+    private static void ImpostaIndietroX(RectTransform contenitore, float x)
+    {
+        RectTransform rt = TrovaIndietro(contenitore);
+        if (rt != null) rt.anchoredPosition = new Vector2(x, rt.anchoredPosition.y);
     }
 
     private Sprite CreaSpriteBianco()
@@ -423,6 +498,8 @@ public class SongListManager : MonoBehaviour
         if (contenitoreRicerca != null)
         {
             contenitoreRicerca.sizeDelta = new Vector2(larghezzaOrigRicerca, contenitoreRicerca.sizeDelta.y);
+            contenitoreRicerca.anchoredPosition = posOrigRicerca;
+            ImpostaIndietroX(contenitoreRicerca, indietroLocXOrig);
             contenitoreRicerca = null;
         }
 
@@ -583,6 +660,7 @@ public class SongListManager : MonoBehaviour
         Image handleImg = handleGO.AddComponent<Image>();
         handleImg.sprite = bottoneSpr;
         handleImg.type = Image.Type.Sliced;
+        handleImg.pixelsPerUnitMultiplier = 0.2f;
         handleImg.color = new Color(1f, 1f, 1f, 0.65f);
         handleImg.raycastTarget = false;
 
@@ -669,6 +747,7 @@ public class SongListManager : MonoBehaviour
         cercaLabel.color = Color.white;
         cercaLabel.alignment = TextAlignmentOptions.Center;
         cercaLabel.raycastTarget = false;
+        GameManager.ApplicaStileTesto(cercaLabel);
 
         // Tastiera virtuale: in editor+Link TMP non puo' aprire la tastiera di sistema
         // della Quest, quindi digitiamo qui dentro. Diventa un figlio del contenitore
@@ -693,6 +772,8 @@ public class SongListManager : MonoBehaviour
                 tastieraAttiva = tastiera;
 
                 larghezzaOrigRicerca = contenitore.sizeDelta.x;
+                posOrigRicerca = contenitore.anchoredPosition;
+                indietroLocXOrig = LeggiIndietroX(contenitore);
                 Transform el = contenitore.Find("ElencoBrani");
                 elencoAttivo = el != null ? el.gameObject : null;
                 if (elencoAttivo != null)
@@ -702,7 +783,17 @@ public class SongListManager : MonoBehaviour
                     elencoAttivo.SetActive(false);
                 }
 
-                contenitore.sizeDelta = new Vector2(Mathf.Max(larghezzaOrigRicerca, 165f), contenitore.sizeDelta.y);
+                // Tastiera piu' larga del gruppo base. Per non invadere il bottone
+                // "Indietro" (in alto a sinistra), il pannello si allarga in modo
+                // ASIMMETRICO: il bordo sinistro resta fermo e cresce solo a destra.
+                // Indietro e' ancorato al centro del gruppo, quindi lo contro-sposto
+                // per mantenerlo dov'e' (stessa posizione a schermo).
+                float nuovaLarghezza = Mathf.Max(larghezzaOrigRicerca, LARGHEZZA_RICERCA);
+                float deltaLocal = nuovaLarghezza - larghezzaOrigRicerca;
+                float shiftCanvas = deltaLocal * 2f;
+                contenitore.sizeDelta = new Vector2(nuovaLarghezza, contenitore.sizeDelta.y);
+                contenitore.anchoredPosition = new Vector2(posOrigRicerca.x + shiftCanvas, posOrigRicerca.y);
+                ImpostaIndietroX(contenitore, indietroLocXOrig - shiftCanvas / 4f);
                 tastiera.SetActive(true);
                 tastiera.transform.SetAsLastSibling();
                 input.ActivateInputField();
@@ -838,6 +929,9 @@ public class SongListManager : MonoBehaviour
         LayoutElement leRead = readGO.AddComponent<LayoutElement>();
         leRead.preferredHeight = 30f;
 
+        // Maschera: il testo non puo' mai uscire dai bordi del readout.
+        readGO.AddComponent<RectMask2D>();
+
         Image readImg = readGO.AddComponent<Image>();
         readImg.sprite = bottoneSpr;
         readImg.type = Image.Type.Sliced;
@@ -851,15 +945,17 @@ public class SongListManager : MonoBehaviour
         rtReadLabel.offsetMax = new Vector2(-8f, -2f);
         TextMeshProUGUI readLabel = readLabelGO.AddComponent<TextMeshProUGUI>();
         readLabel.font = fontAsset;
-        readLabel.fontSize = 17;
+        readLabel.fontSize = 15;
         readLabel.color = new Color(0.9f, 0.95f, 1f, 1f);
         readLabel.alignment = TextAlignmentOptions.Left;
-        readLabel.text = "Scrivi il brano da cercare...";
+        readLabel.enableWordWrapping = false;
+        readLabel.overflowMode = TextOverflowModes.Ellipsis;
+        readLabel.text = "Scrivi il brano";
         readLabel.raycastTarget = false;
 
         input.onValueChanged.AddListener((v) =>
         {
-            readLabel.text = string.IsNullOrEmpty(v) ? "Scrivi il brano da cercare..." : "> " + v;
+            readLabel.text = string.IsNullOrEmpty(v) ? "Scrivi il brano" : "> " + v;
         });
 
         CreaRigaTastiera(tastiera.transform, input, 30f, "A", "B", "C", "D", "E", "F", "G", "H", "I", "J");
@@ -875,7 +971,7 @@ public class SongListManager : MonoBehaviour
         GameObject riga = CrearGOFiglio(parent, "RigaTastiera");
 
         HorizontalLayoutGroup hlg = riga.AddComponent<HorizontalLayoutGroup>();
-        hlg.spacing = 10f;
+        hlg.spacing = 6f;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
         hlg.childForceExpandWidth = true;
@@ -912,6 +1008,7 @@ public class SongListManager : MonoBehaviour
             Image img = te.AddComponent<Image>();
             img.sprite = bottoneSpr;
             img.type = Image.Type.Sliced;
+            img.pixelsPerUnitMultiplier = 0.25f;
             img.color = new Color(0.20f, 0.22f, 0.30f, 1f);
 
             Button btn = te.AddComponent<Button>();
@@ -933,6 +1030,7 @@ public class SongListManager : MonoBehaviour
             lab.fontSize = rigaLarga ? 14f : 15f;
             lab.color = Color.white;
             lab.alignment = TextAlignmentOptions.Center;
+            GameManager.ApplicaStileTesto(lab);
 
             btn.onClick.AddListener(() => GestisciTastoTastiera(input, tasto, te));
         }
@@ -1054,6 +1152,7 @@ public class SongListManager : MonoBehaviour
         label.alignment = TextAlignmentOptions.Left;
         label.enableWordWrapping = false;
         label.raycastTarget = false;
+        GameManager.ApplicaStileTesto(label);
 
         BranoDinamicoUI dinamico = bottoneGO.AddComponent<BranoDinamicoUI>();
         dinamico.ImpostaBrano(titolo, autore, id, nuovoRisultato);
