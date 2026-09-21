@@ -546,7 +546,7 @@ public class SongListManager : MonoBehaviour
 
         // Corsia dedicata della scrollbar (unita canvas): separa la "presa" del
         // pinch dai bottoni delle canzoni evitando ogni sovrapposizione.
-        const float SB_LANE = 24f;
+        const float SB_LANE = 28f;
         const float SB_WIDTH = 8f;
         rtVp.offsetMax = new Vector2(-SB_LANE, 0f);
 
@@ -555,6 +555,7 @@ public class SongListManager : MonoBehaviour
         Image sfondoVp = vpGO.AddComponent<Image>();
         sfondoVp.sprite = bottoneSpr;
         sfondoVp.type = Image.Type.Sliced;
+        sfondoVp.raycastTarget = false;
         sfondoVp.color = new Color(0.05f, 0.06f, 0.09f, 0.55f);
 
         GameObject sbGO = CrearGOFiglio(scrollGO.transform, "Scrollbar");
@@ -601,8 +602,8 @@ public class SongListManager : MonoBehaviour
         rtContent.sizeDelta = new Vector2(0f, 0f);
 
         VerticalLayoutGroup vlg = contentGO.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(2, 2, 2, 2);
-        vlg.spacing = 4f;
+        vlg.padding = new RectOffset(6, 6, 6, 6);
+        vlg.spacing = 8f;
         vlg.childAlignment = TextAnchor.UpperCenter;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
@@ -628,10 +629,10 @@ public class SongListManager : MonoBehaviour
         rtRoot.anchorMin = Vector2.zero;
         rtRoot.anchorMax = new Vector2(1f, 0f);
         rtRoot.pivot = new Vector2(0.5f, 0.5f);
-        rtRoot.sizeDelta = new Vector2(0f, 38f);
+        rtRoot.sizeDelta = new Vector2(0f, 42f);
 
         LayoutElement leRoot = root.AddComponent<LayoutElement>();
-        leRoot.preferredHeight = 38f;
+        leRoot.preferredHeight = 42f;
 
         HorizontalLayoutGroup hlg = root.AddComponent<HorizontalLayoutGroup>();
         hlg.spacing = 5f;
@@ -645,7 +646,7 @@ public class SongListManager : MonoBehaviour
 
         GameObject cercaGO = CrearGOFiglio(root.transform, "Cerca");
         LayoutElement leCerca = cercaGO.AddComponent<LayoutElement>();
-        leCerca.preferredWidth = 84f;
+        leCerca.preferredWidth = 104f;
 
         Image cercaImg = cercaGO.AddComponent<Image>();
         cercaImg.sprite = bottoneSpr;
@@ -667,6 +668,7 @@ public class SongListManager : MonoBehaviour
         cercaLabel.fontSize = 15;
         cercaLabel.color = Color.white;
         cercaLabel.alignment = TextAlignmentOptions.Center;
+        cercaLabel.raycastTarget = false;
 
         // Tastiera virtuale: in editor+Link TMP non puo' aprire la tastiera di sistema
         // della Quest, quindi digitiamo qui dentro. Diventa un figlio del contenitore
@@ -815,7 +817,7 @@ public class SongListManager : MonoBehaviour
 
         // Partecipa al layout del contenitore: si posiziona in fondo, sotto l'elenco.
         LayoutElement le = tastiera.AddComponent<LayoutElement>();
-        le.preferredHeight = 166f;
+        le.preferredHeight = 208f;
 
         Image sfondo = tastiera.AddComponent<Image>();
         sfondo.sprite = bottoneSpr;
@@ -824,7 +826,7 @@ public class SongListManager : MonoBehaviour
 
         VerticalLayoutGroup vlg = tastiera.AddComponent<VerticalLayoutGroup>();
         vlg.padding = new RectOffset(4, 4, 4, 4);
-        vlg.spacing = 6f;
+        vlg.spacing = 10f;
         vlg.childControlWidth = true;
         vlg.childControlHeight = true;
         vlg.childForceExpandWidth = true;
@@ -834,7 +836,7 @@ public class SongListManager : MonoBehaviour
         // Schermo readout: mostra live il testo digitato sulla tastiera.
         GameObject readGO = CrearGOFiglio(tastiera.transform, "Readout");
         LayoutElement leRead = readGO.AddComponent<LayoutElement>();
-        leRead.preferredHeight = 28f;
+        leRead.preferredHeight = 30f;
 
         Image readImg = readGO.AddComponent<Image>();
         readImg.sprite = bottoneSpr;
@@ -853,16 +855,17 @@ public class SongListManager : MonoBehaviour
         readLabel.color = new Color(0.9f, 0.95f, 1f, 1f);
         readLabel.alignment = TextAlignmentOptions.Left;
         readLabel.text = "Scrivi il brano da cercare...";
+        readLabel.raycastTarget = false;
 
         input.onValueChanged.AddListener((v) =>
         {
             readLabel.text = string.IsNullOrEmpty(v) ? "Scrivi il brano da cercare..." : "> " + v;
         });
 
-        CreaRigaTastiera(tastiera.transform, input, 26f, "A", "B", "C", "D", "E", "F", "G", "H", "I", "J");
-        CreaRigaTastiera(tastiera.transform, input, 26f, "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T");
-        CreaRigaTastiera(tastiera.transform, input, 26f, "U", "V", "W", "X", "Y", "Z");
-        CreaRigaTastiera(tastiera.transform, input, 26f, "BACK", "SP", "DEL", "AC", "OK");
+        CreaRigaTastiera(tastiera.transform, input, 30f, "A", "B", "C", "D", "E", "F", "G", "H", "I", "J");
+        CreaRigaTastiera(tastiera.transform, input, 30f, "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T");
+        CreaRigaTastiera(tastiera.transform, input, 30f, "U", "V", "W", "X", "Y", "Z");
+        CreaRigaTastiera(tastiera.transform, input, 30f, "BACK", "SP", "DEL", "AC", "OK");
 
         return tastiera;
     }
@@ -872,7 +875,7 @@ public class SongListManager : MonoBehaviour
         GameObject riga = CrearGOFiglio(parent, "RigaTastiera");
 
         HorizontalLayoutGroup hlg = riga.AddComponent<HorizontalLayoutGroup>();
-        hlg.spacing = 6f;
+        hlg.spacing = 10f;
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
         hlg.childForceExpandWidth = true;
@@ -1018,10 +1021,10 @@ public class SongListManager : MonoBehaviour
         rt.anchorMin = Vector2.zero;
         rt.anchorMax = new Vector2(1f, 0f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(0f, 36f);
+        rt.sizeDelta = new Vector2(0f, 40f);
 
         LayoutElement le = bottoneGO.AddComponent<LayoutElement>();
-        le.preferredHeight = 36f;
+        le.preferredHeight = 40f;
 
         Image img = bottoneGO.AddComponent<Image>();
         img.sprite = bottoneSpr;
@@ -1042,14 +1045,15 @@ public class SongListManager : MonoBehaviour
         RectTransform rtLabel = (RectTransform)labelGO.transform;
         rtLabel.anchorMin = Vector2.zero;
         rtLabel.anchorMax = Vector2.one;
-        rtLabel.offsetMin = new Vector2(6f, 2f);
-        rtLabel.offsetMax = new Vector2(-6f, -2f);
+        rtLabel.offsetMin = new Vector2(8f, 2f);
+        rtLabel.offsetMax = new Vector2(-8f, -2f);
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
         label.font = fontAsset;
         label.fontSize = 11;
         label.color = Color.white;
         label.alignment = TextAlignmentOptions.Left;
         label.enableWordWrapping = false;
+        label.raycastTarget = false;
 
         BranoDinamicoUI dinamico = bottoneGO.AddComponent<BranoDinamicoUI>();
         dinamico.ImpostaBrano(titolo, autore, id, nuovoRisultato);

@@ -52,6 +52,10 @@ public class GameManager : MonoBehaviour
     {
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
         CreaBottoneHomeTutorial();
+
+        GameObject raggioGO = new GameObject("RaggioPuntatore");
+        raggioGO.transform.SetParent(this.transform, false);
+        raggioGO.AddComponent<RaggioPuntatore>();
     }
 
     private void ConfiguraStatoIniziale()
