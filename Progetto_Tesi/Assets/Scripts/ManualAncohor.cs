@@ -282,11 +282,13 @@ public class ManualAnchor : MonoBehaviour
         rt.sizeDelta = new Vector2(600f, 400f);
 
         TextMeshProUGUI testo = go.AddComponent<TextMeshProUGUI>();
-        if (instructionalText != null) testo.font = instructionalText.font;
+        testo.font = GameManager.FontApp != null
+            ? GameManager.FontApp
+            : (instructionalText != null ? instructionalText.font : testo.font);
         testo.fontSize = 30f;
         testo.alignment = TextAlignmentOptions.Center;
         testo.color = Color.white;
-        testo.text = "<color=#FFFF55><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
+        testo.text = "<color=#ede580><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
 
         messaggioAncoraggio = go;
     }

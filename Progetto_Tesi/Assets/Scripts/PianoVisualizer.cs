@@ -658,6 +658,7 @@ public class PianoVisualizer : MonoBehaviour
 
         TextMeshPro tmp = testoObj.AddComponent<TextMeshPro>();
         tmp.text = testoNota;
+        if (GameManager.FontApp != null) tmp.font = GameManager.FontApp;
         tmp.fontSize = 0.12f; // Dimensione ridotta per evitare sovrapposizioni tra tasti vicini
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = coloreTesto;

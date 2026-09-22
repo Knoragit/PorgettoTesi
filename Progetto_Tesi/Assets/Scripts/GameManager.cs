@@ -49,6 +49,53 @@ public class GameManager : MonoBehaviour
     private static Sprite sprArrotondato;
     private static Material matOmbra;
 
+    // --- PALETTE PANNELIi/BOTTONI (Alabaster/Iron/BlueSlate/Pacific) ---
+    public static readonly Color AlabasterGrey = new Color(0.8627f, 0.8627f, 0.8667f, 1f); // #dcdcdd
+    public static readonly Color IronGrey = new Color(0.2745f, 0.2863f, 0.2980f, 1f);       // #46494c
+    public static readonly Color BlueSlate = new Color(0.2980f, 0.3608f, 0.4078f, 1f);      // #4c5c68
+    public static readonly Color PacificCyan = new Color(0.0980f, 0.5216f, 0.6314f, 1f);    // #1985a1
+
+    // --- PALETTE SCRITTE COLORATE (invariate) ---
+    public static readonly Color NavajoWhite = new Color(1.000f, 0.878f, 0.710f, 1f); // #ffe0b5
+    public static readonly Color MutedOlive = new Color(0.643f, 0.686f, 0.412f, 1f);   // #a4af69
+    public static readonly Color PaleAmber = new Color(0.929f, 0.898f, 0.502f, 1f);    // #ede580
+    public static readonly Color Espresso = new Color(0.298f, 0.153f, 0.098f, 1f);      // #4c2719
+    public static readonly Color LightCoral = new Color(0.898f, 0.420f, 0.439f, 1f);    // #e56b70
+
+    // --- FONT (Inter) ---
+    private static TMP_FontAsset fontApp;
+    private static bool fontCercato;
+
+    public static TMP_FontAsset FontApp
+    {
+        get
+        {
+            if (!fontCercato)
+            {
+                fontCercato = true;
+                fontApp = TrovaFontApp();
+            }
+            return fontApp;
+        }
+    }
+
+    private static TMP_FontAsset TrovaFontApp()
+    {
+        TMP_FontAsset[] fontAssets = Resources.LoadAll<TMP_FontAsset>("Fonts");
+        foreach (TMP_FontAsset fa in fontAssets)
+            if (fa != null && fa.name.ToLower().Contains("inter")) return fa;
+        if (fontAssets.Length > 0 && fontAssets[0] != null) return fontAssets[0];
+
+        Font[] fonts = Resources.LoadAll<Font>("Fonts");
+        if (fonts.Length > 0 && fonts[0] != null)
+        {
+            TMP_FontAsset dinamico = TMP_FontAsset.CreateFontAsset(fonts[0]);
+            if (dinamico != null) return dinamico;
+        }
+
+        return TMP_Settings.defaultFontAsset;
+    }
+
     public static Sprite SpriteArrotondato
     {
         get
@@ -62,9 +109,30 @@ public class GameManager : MonoBehaviour
     {
         get
         {
-            if (matOmbra == null) matOmbra = TrovaMaterialeOmbra();
+            if (matOmbra == null)
+            {
+                matOmbra = CreaMaterialeOmbra(FontApp);
+                if (matOmbra == null) matOmbra = TrovaMaterialeOmbra();
+            }
             return matOmbra;
         }
+    }
+
+    // Materiale con ombra (underlay) costruito sul font attivo: clona il materiale
+    // del font e attiva l'underlay, cosi' l'ombra resta corretta anche con Inter.
+    private static Material CreaMaterialeOmbra(TMP_FontAsset font)
+    {
+        if (font == null || font.material == null) return null;
+
+        Material m = new Material(font.material);
+        m.name = font.name + " Drop Shadow";
+        m.EnableKeyword("UNDERLAY_ON");
+        m.SetColor("_UnderlayColor", new Color(0f, 0f, 0f, 0.5f));
+        m.SetFloat("_UnderlayOffsetX", 0.4f);
+        m.SetFloat("_UnderlayOffsetY", -0.4f);
+        m.SetFloat("_UnderlayDilate", 0.1f);
+        m.SetFloat("_UnderlaySoftness", 0.15f);
+        return m;
     }
 
     private static Sprite TrovaSpriteArrotondata()
@@ -119,10 +187,11 @@ public class GameManager : MonoBehaviour
         return null;
     }
 
-    // Applica a una label dei bottoni lo stile uniforme: grassetto + ombra.
+    // Applica a una label dei bottoni lo stile uniforme: font Inter, grassetto + ombra.
     public static void ApplicaStileTesto(TextMeshProUGUI label)
     {
         if (label == null) return;
+        if (FontApp != null) label.font = FontApp;
         label.fontStyle = FontStyles.Bold;
         if (MaterialeTesto != null) label.fontSharedMaterial = MaterialeTesto;
     }
@@ -153,6 +222,8 @@ public class GameManager : MonoBehaviour
     {
         yield return null;
         UniformaBottoniTorna();
+        ApplicaPalette();
+        ApplicaFontGlobale();
     }
 
     private void UniformaBottoniTorna()
@@ -187,8 +258,9 @@ public class GameManager : MonoBehaviour
         return null;
     }
 
-    // Copia forma, colori ed etichetta del bottone di riferimento sul target,
-    // compensando la diversa scala dei gruppi (FaiTu x1, Osservatore/Seguimi x4).
+    // Copia forma ed etichetta del bottone di riferimento sul target, compensando
+    // la diversa scala dei gruppi (FaiTu x1, Osservatore/Seguimi x4). NON copia i
+    // colori: la palette viene applicata a parte da ApplicaPalette().
     private static void CopiaStileBottoneTorna(Transform target, Transform riferimento)
     {
         if (target == null || riferimento == null) return;
@@ -203,14 +275,9 @@ public class GameManager : MonoBehaviour
         {
             imgDst.sprite = imgRif.sprite;
             imgDst.type = imgRif.type;
-            imgDst.color = imgRif.color;
             imgDst.material = imgRif.material;
             imgDst.pixelsPerUnitMultiplier = imgRif.pixelsPerUnitMultiplier * comp;
         }
-
-        Button btnRif = riferimento.GetComponent<Button>();
-        Button btnDst = target.GetComponent<Button>();
-        if (btnRif != null && btnDst != null) btnDst.colors = btnRif.colors;
 
         TextMeshProUGUI txtRif = riferimento.GetComponentInChildren<TextMeshProUGUI>(true);
         TextMeshProUGUI txtDst = target.GetComponentInChildren<TextMeshProUGUI>(true);
@@ -218,11 +285,128 @@ public class GameManager : MonoBehaviour
         {
             txtDst.font = txtRif.font;
             txtDst.fontSharedMaterial = txtRif.fontSharedMaterial;
-            txtDst.color = txtRif.color;
             txtDst.fontStyle = txtRif.fontStyle;
             txtDst.alignment = txtRif.alignment;
             txtDst.text = txtRif.text;
             txtDst.fontSize = txtRif.fontSize / comp;
+        }
+    }
+
+    // Applica la palette ai bottoni statici, ai pannelli e ai titoli.
+    private void ApplicaPalette()
+    {
+        // Bottoni del menu, Riancora, "Torna al Menù" e Genera Report:
+        // Alabaster -> Pacific Cyan (hover), Iron Grey (conferma), testo nero.
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Tutorial"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Osservatore"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+
+        // "Indietro" di Osservatore/Seguimi: gestiti a mano da IndietroFeedback.
+        StileIndietro(TrovaFiglio(observerGroup, "Bottone-Indietro"));
+        StileIndietro(TrovaFiglio(seguimiGroup, "Bottone-Indietro"));
+
+        // Pannelli "Sfondo" di Tutorial e FaiTu: Blue Slate.
+        ColoraPannelli(tutorialGroup);
+        ColoraPannelli(faiTuGroup);
+
+        // Titoli dei gruppi: Navajo (la calibrazione resta invariata).
+        ColoraTitoli(menuGroup);
+        ColoraTitoli(tutorialGroup);
+        ColoraTitoli(observerGroup);
+        ColoraTitoli(seguimiGroup);
+        ColoraTitoli(faiTuGroup);
+    }
+
+    private static void StileBottone(Transform target, Color baseC, Color hoverC, Color pressedC, Color testo)
+    {
+        if (target == null) return;
+
+        Image img = target.GetComponent<Image>();
+        if (img != null) img.color = Color.white;
+
+        Button btn = target.GetComponent<Button>();
+        if (btn != null)
+        {
+            ColorBlock c = btn.colors;
+            c.normalColor = baseC;
+            c.highlightedColor = hoverC;
+            c.pressedColor = pressedC;
+            c.selectedColor = hoverC;
+            c.disabledColor = baseC;
+            c.colorMultiplier = 1f;
+            btn.colors = c;
+        }
+
+        TextMeshProUGUI label = target.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (label != null) label.color = testo;
+    }
+
+    private static void StileIndietro(Transform target)
+    {
+        if (target == null) return;
+
+        Image img = target.GetComponent<Image>();
+        if (img != null) img.color = AlabasterGrey;
+
+        Button btn = target.GetComponent<Button>();
+        if (btn != null)
+        {
+            ColorBlock c = btn.colors;
+            c.highlightedColor = PacificCyan;
+            c.pressedColor = IronGrey;
+            btn.colors = c;
+        }
+
+        IndietroFeedback fb = target.GetComponent<IndietroFeedback>();
+        if (fb != null) fb.ImpostaColori(AlabasterGrey, PacificCyan);
+
+        TextMeshProUGUI label = target.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (label != null) label.color = Color.black;
+    }
+
+    private static void ColoraPannelli(GameObject gruppo)
+    {
+        if (gruppo == null) return;
+        foreach (Transform t in gruppo.GetComponentsInChildren<Transform>(true))
+        {
+            if (t.name != "Sfondo") continue;
+            Image img = t.GetComponent<Image>();
+            if (img != null) img.color = BlueSlate;
+        }
+    }
+
+    // Porta i titoli "Testo Titolo" su Navajo (la calibrazione resta invariata).
+    private static void ColoraTitoli(GameObject gruppo)
+    {
+        if (gruppo == null) return;
+        foreach (TextMeshProUGUI t in gruppo.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (t.name == "Testo Titolo") t.color = NavajoWhite;
+        }
+    }
+
+    // Sostituisce il font di TUTTE le scritte (anche inattive) con Inter, mantenendo
+    // l'ombra sulle label che l'avevano.
+    private void ApplicaFontGlobale()
+    {
+        TMP_FontAsset fa = FontApp;
+        if (fa == null) return;
+
+        foreach (TextMeshProUGUI t in FindObjectsByType<TextMeshProUGUI>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            bool avevaOmbra = t.fontSharedMaterial != null && t.fontSharedMaterial.name.Contains("Drop Shadow");
+            t.font = fa;
+            if (avevaOmbra) ApplicaStileTesto(t);
+        }
+
+        foreach (TextMeshPro t in FindObjectsByType<TextMeshPro>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            t.font = fa;
         }
     }
 
@@ -320,7 +504,20 @@ public class GameManager : MonoBehaviour
 
     private IEnumerator MostraBannerFaiTuTemporaneo()
     {
-        if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(true);
+        if (faiTuBannerMessaggio != null)
+        {
+            RectTransform bannerRt = faiTuBannerMessaggio.transform is RectTransform
+                ? (RectTransform)faiTuBannerMessaggio.transform
+                : null;
+            if (bannerRt != null)
+            {
+                bannerRt.anchorMin = new Vector2(0.5f, 0.5f);
+                bannerRt.anchorMax = new Vector2(0.5f, 0.5f);
+                bannerRt.pivot = new Vector2(0.5f, 0.5f);
+                bannerRt.anchoredPosition = Vector2.zero;
+            }
+            faiTuBannerMessaggio.SetActive(true);
+        }
         yield return new WaitForSeconds(5.0f);
         if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(false);
     }
@@ -406,9 +603,11 @@ public class GameManager : MonoBehaviour
 
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
         label.text = "Torna al\nMen\u00F9";
-        label.font = TMP_Settings.defaultFontAsset != null
-            ? TMP_Settings.defaultFontAsset
-            : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");
+        label.font = FontApp != null
+            ? FontApp
+            : (TMP_Settings.defaultFontAsset != null
+                ? TMP_Settings.defaultFontAsset
+                : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF"));
         label.fontSize = 72;
         label.color = new Color(0.19607843f, 0.19607843f, 0.19607843f, 1f);
         label.alignment = TextAlignmentOptions.Center;
@@ -564,7 +763,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator TransizioneSfidaCoroutine(int prossimaSfida, string testoNuovaSfida)
     {
         inTransizione = true;
-        if (tutorialText != null) tutorialText.text = "<color=#00FF00><b>COMPLETATO!</b></color>\n\nOttimo lavoro! Preparati per la prossima sfida...";
+        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>COMPLETATO!</b></color>\n\nOttimo lavoro! Preparati per la prossima sfida...";
 
         yield return new WaitForSeconds(2.5f);
 
@@ -581,7 +780,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator TransizioneErroreCoroutine(string messaggioErrore, string testoSfidaDaRipristinare)
     {
         inTransizione = true;
-        if (tutorialText != null) tutorialText.text = $"<color=#FF3333><b>{messaggioErrore}</b></color>\n\nRileggi bene le istruzioni e riprova.";
+        if (tutorialText != null) tutorialText.text = $"<color=#e56b70><b>{messaggioErrore}</b></color>\n\nRileggi bene le istruzioni e riprova.";
 
         yield return new WaitForSeconds(2.0f);
 
@@ -593,7 +792,7 @@ public class GameManager : MonoBehaviour
     {
         inTransizione = true;
         sfidaAttuale = 0;
-        if (tutorialText != null) tutorialText.text = "<color=#00FF00><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men�...";
+        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men�...";
 
         yield return new WaitForSeconds(3.5f);
         AttivaMenu();

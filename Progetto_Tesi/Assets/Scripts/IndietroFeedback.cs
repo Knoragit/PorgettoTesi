@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using TMPro;
 
 // Feedback visivo per i bottoni (Indietro, canzoni, ecc.) che evita l'highlight
 // "a catena" durante lo scroll: disabilita la ColorTint di Unity (che lascia lo
@@ -10,10 +11,18 @@ using UnityEngine.EventSystems;
 public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler,
                                 IPointerDownHandler, IPointerUpHandler
 {
+    public TextMeshProUGUI etichetta;
+    public bool cambiaColoreEtichetta = false;
+    public Color coloreEtichettaBase = Color.white;
+    public Color coloreEtichettaHover = Color.black;
+    public Color coloreEtichettaPremuto = Color.black;
+
     private Image img;
     private Button btn;
     private Color coloreBase;
     private Color coloreHover;
+    private Color colorePremuto;
+    private bool colorePremutoImpostato = false;
     private bool premuto = false;
 
     void Start()
@@ -26,6 +35,28 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
             btn.transition = Selectable.Transition.None;
         }
         if (img != null) coloreBase = img.color;
+        if (!colorePremutoImpostato) colorePremuto = coloreHover;
+        if (etichetta == null) etichetta = GetComponentInChildren<TextMeshProUGUI>(true);
+    }
+
+    // Aggiorna i colori dopo la cache di Start() (la palette viene applicata
+    // da GameManager un frame dopo la creazione).
+    public void ImpostaColori(Color baseC, Color hoverC)
+    {
+        coloreBase = baseC;
+        coloreHover = hoverC;
+        colorePremuto = hoverC;
+        colorePremutoImpostato = true;
+        if (img != null) img.color = coloreBase;
+        ApplicaEtichetta(false);
+    }
+
+    // Colore di pressione indipendente (per le righe canzone: hover Navajo,
+    // conferma Muted Olive).
+    public void ImpostaColorePremuto(Color premutoC)
+    {
+        colorePremuto = premutoC;
+        colorePremutoImpostato = true;
     }
 
     void OnEnable()
@@ -51,7 +82,8 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     public void OnPointerDown(PointerEventData e)
     {
         premuto = true;
-        Applica(coloreHover);
+        if (img != null) img.color = colorePremuto;
+        if (cambiaColoreEtichetta && etichetta != null) etichetta.color = coloreEtichettaPremuto;
     }
 
     public void OnPointerUp(PointerEventData e)
@@ -64,11 +96,19 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     {
         premuto = false;
         if (img != null) img.color = coloreBase;
+        ApplicaEtichetta(false);
     }
 
     private void Applica(Color colore)
     {
         if (img != null) img.color = colore;
+        ApplicaEtichetta(true);
+    }
+
+    private void ApplicaEtichetta(bool hover)
+    {
+        if (!cambiaColoreEtichetta || etichetta == null) return;
+        etichetta.color = hover ? coloreEtichettaHover : coloreEtichettaBase;
     }
 
     // Se il raggio sta premendo/trascinando un altro oggetto (es. la scrollbar o

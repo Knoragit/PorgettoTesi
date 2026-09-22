@@ -19,7 +19,7 @@ public class BranoButtonUI : MonoBehaviour
     {
         if (testoTitoloEAutore != null)
         {
-            testoTitoloEAutore.text = $"{titolo}\n<size=80%><color=#aaaaaa>{autore}</color></size>";
+            testoTitoloEAutore.text = $"{titolo}\n<size=80%><color=#ffe0b5>{autore}</color></size>";
         }
 
         if (testoDifficolta != null)

@@ -11,11 +11,11 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
     public Image handleImg;
     public Image trackImg;
 
-    private static readonly Color ColoreStabile = new Color(1f, 1f, 1f, 0.65f);
-    private static readonly Color ColoreHover = new Color(0.85f, 0.95f, 1f, 1f);
-    private static readonly Color ColoreDrag = new Color(0.40f, 0.70f, 1f, 1f);
-    private static readonly Color TracciaStabile = new Color(1f, 1f, 1f, 0.10f);
-    private static readonly Color TracciaAttiva = new Color(1f, 1f, 1f, 0.25f);
+    private static readonly Color ColoreStabile = new Color(0.2745f, 0.2863f, 0.2980f, 1f);   // Iron Grey
+    private static readonly Color ColoreHover = new Color(0.0980f, 0.5216f, 0.6314f, 1f);   // Pacific Cyan
+    private static readonly Color ColoreDrag = new Color(0.2980f, 0.3608f, 0.4078f, 1f);    // Blue Slate
+    private static readonly Color TracciaStabile = new Color(0.2980f, 0.3608f, 0.4078f, 0.30f); // Blue Slate
+    private static readonly Color TracciaAttiva = new Color(0.2980f, 0.3608f, 0.4078f, 0.55f);  // Blue Slate
 
     private float targetNorm = 1f;
     private bool dragging = false;

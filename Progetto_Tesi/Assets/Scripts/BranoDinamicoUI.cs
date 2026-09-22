@@ -13,8 +13,8 @@ public class BranoDinamicoUI : MonoBehaviour
         TextMeshProUGUI label = GetComponentInChildren<TextMeshProUGUI>();
         if (label != null)
         {
-            string prefix = nuovoRisultato ? "<color=#00FF00><b>■ Scaricato: </b></color>" : "";
-            label.text = prefix + titolo + "\n<size=80%><color=#aaaaaa>" + autore + "</color></size>";
+            string prefix = nuovoRisultato ? "<color=#a4af69><b>■ Scaricato: </b></color>" : "";
+            label.text = prefix + titolo + "\n<size=80%><color=#ffe0b5>" + autore + "</color></size>";
         }
 
         Button btn = GetComponent<Button>();
