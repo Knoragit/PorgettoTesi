@@ -47,6 +47,15 @@ public class SongListManager : MonoBehaviour
     private float indietroLocXOrig = -150f;
     private const float LARGHEZZA_RICERCA = 160f;
 
+    // Firme (id in ordine) dell'ultima lista renderizzata: servono a saltare la
+    // ricostruzione quando il contenuto non cambia (anti-sfarfallio).
+    private List<string> firmaObserver = new List<string>();
+    private List<string> firmaSeguimi = new List<string>();
+    private Coroutine coroutineDebounce;
+    private string queryDebounce = "";
+    private PianoVisualizer visualizerCache;
+    private RaggioPuntatore raggioCache;
+
     private GameManager.AppState statoPrecedente = GameManager.AppState.Onboarding;
 
     void Start()
@@ -382,7 +391,8 @@ public class SongListManager : MonoBehaviour
         RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
         RiallineaBottoni(contenitoreSeguimi, barraObserver, barraSeguimi);
 
-        RilasciaIndietro();
+        RilasciaSoloIndietro();
+        RifrescaRaggio();
     }
 
     // Renderizza una lista di canzoni nel contenitore indicato, distruggendo prima
@@ -390,6 +400,21 @@ public class SongListManager : MonoBehaviour
     private void RenderizzaLista(RectTransform elenco, List<GameObject> targetList,
                                  UdpReceiver.SongData[] songs, int maxMostrati)
     {
+        List<string> firma = new List<string>();
+        if (songs != null)
+        {
+            for (int i = 0; i < maxMostrati; i++)
+                firma.Add(songs[i].id.ToString());
+        }
+
+        // Anti-sfarfallio: se il contenuto non è cambiato rispetto all'ultimo
+        // render, non distruggiamo/ricreiamo i bottoni (evita rebuild continui,
+        // layout oscillante e perdita di scroll/hover a ogni risposta di rete).
+        // In ricerca con firma vuota si ristampa comunque: il messaggio può
+        // passare da "Ricerca in corso..." a "Nessun risultato...".
+        bool conMessaggioVuota = inRicerca && firma.Count == 0;
+        if (!conMessaggioVuota && FirmaUguale(ListaFirma(targetList), firma)) return;
+
         SvuotaBottoni(targetList);
 
         int mostrati = 0;
@@ -401,6 +426,7 @@ public class SongListManager : MonoBehaviour
                 mostrati++;
             }
         }
+        AggiornaFirma(targetList, firma);
 
         // In modalità ricerca, se non c'è nessun match mostriamo un messaggio
         // chiaro al posto di una lista vuota. Durante il download online la
@@ -415,23 +441,42 @@ public class SongListManager : MonoBehaviour
 
         if (inRicerca)
         {
-            string gruppo = (targetList == bottoniObserver) ? "Osservatore" : "Seguimi";
             ScrollRect sr = elenco.GetComponentInParent<ScrollRect>();
-            float vPos = sr != null ? sr.verticalNormalizedPosition : -1f;
-            float vpH = (sr != null && sr.viewport != null) ? sr.viewport.rect.height : 0f;
-            UnityEngine.Debug.Log("[RICERCA] mostrati " + mostrati + " risultati in " + gruppo
-                + " | scrollAttivo=" + (sr != null && sr.gameObject.activeInHierarchy)
-                + " vPos=" + vPos.ToString("F2")
-                + " contentRighe=" + elenco.childCount
-                + " viewportH=" + vpH.ToString("F1")
-                + " contentH=" + elenco.rect.height.ToString("F1"));
             PortaScrollInCima(sr);
         }
 
         RiallineaBottoni(contenitoreObserver, barraObserver, barraSeguimi);
         RiallineaBottoni(contenitoreSeguimi, barraObserver, barraSeguimi);
 
-        RilasciaIndietro();
+        RilasciaSoloIndietro();
+    }
+
+    private static bool FirmaUguale(List<string> a, List<string> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private List<string> ListaFirma(List<GameObject> targetList)
+    {
+        return (targetList == bottoniSeguimi) ? firmaSeguimi : firmaObserver;
+    }
+
+    private void AggiornaFirma(List<GameObject> targetList, List<string> firma)
+    {
+        List<string> salvata = ListaFirma(targetList);
+        salvata.Clear();
+        salvata.AddRange(firma);
+    }
+
+    // Reset hover SOLO dei bottoni "Indietro" quando la lista viene renderizzata:
+    // le righe canzoni non devono più spegnersi a ogni risposta di rete.
+    private void RilasciaSoloIndietro()
+    {
+        if (indietroObserver != null) indietroObserver.Rilascia();
+        if (indietroSeguimi != null) indietroSeguimi.Rilascia();
     }
 
     public void SearchResultRicevuta(string status, string filename, string title, string artist, string message)
@@ -567,12 +612,44 @@ public class SongListManager : MonoBehaviour
         if (receiver == null) receiver = FindFirstObjectByType<UdpReceiver>();
         if (receiver != null) receiver.InviaComandoStop();
 
-        PianoVisualizer vis = FindFirstObjectByType<PianoVisualizer>();
-        if (vis != null)
+        if (visualizerCache == null) visualizerCache = FindFirstObjectByType<PianoVisualizer>();
+        if (visualizerCache != null)
         {
-            vis.ResetVisualizer();
-            vis.PulisciNoteAtteseVisive();
+            visualizerCache.ResetVisualizer();
+            visualizerCache.PulisciNoteAtteseVisive();
         }
+    }
+
+    // Debounce dei suggerimenti della barra di ricerca: la richiesta parte solo
+    // dopo ~300ms da fermo, così non si ricostruisce la lista a ogni tasto.
+    private void AccodaSuggerimento(string val)
+    {
+        // Durante la ricerca niente liste live: i risultati arrivano solo dopo OK.
+        if (inRicerca) return;
+
+        queryDebounce = val;
+        if (coroutineDebounce != null) StopCoroutine(coroutineDebounce);
+        coroutineDebounce = StartCoroutine(InvioSuggerimentoDopoPausa());
+    }
+
+    private IEnumerator InvioSuggerimentoDopoPausa()
+    {
+        yield return new WaitForSeconds(0.3f);
+        coroutineDebounce = null;
+        if (receiver == null) receiver = FindFirstObjectByType<UdpReceiver>();
+        if (receiver == null) yield break;
+        if (string.IsNullOrEmpty(queryDebounce))
+            receiver.InviaComandoListaSongs();
+        else
+            receiver.InviaComandoSuggerimento(queryDebounce);
+    }
+
+    // La lista ricostruita o il menù che cambia invalidano la cache del raggio:
+    // forza il rinfresco immediato (metà secondo di ritardo = laser che trema).
+    private void RifrescaRaggio()
+    {
+        if (raggioCache == null) raggioCache = FindFirstObjectByType<RaggioPuntatore>();
+        if (raggioCache != null) raggioCache.RinfrescaOra();
     }
 
     private static GameObject TrovaElencoScroll(RectTransform contenitore)
@@ -613,7 +690,8 @@ public class SongListManager : MonoBehaviour
         GameObject elenco = TrovaElencoScroll(contenitore);
         GameObject cerchio = siamoObserver ? cerchioObserver : cerchioSeguimi;
         transizioneMenu = true;
-        StartCoroutine(AnimaChiusura(barra, elenco, cerchio));
+        StartCoroutine(AnimaChiusura(contenitore, barra, elenco, cerchio));
+        RifrescaRaggio();
     }
 
     public void ApriMenu(RectTransform contenitore)
@@ -636,7 +714,8 @@ public class SongListManager : MonoBehaviour
         GameObject elenco = TrovaElencoScroll(contenitore);
         GameObject cerchio = siamoObserver ? cerchioObserver : cerchioSeguimi;
         transizioneMenu = true;
-        StartCoroutine(AnimaApertura(barra, elenco, cerchio));
+        StartCoroutine(AnimaApertura(contenitore, barra, elenco, cerchio));
+        RifrescaRaggio();
     }
 
     private void ApriMenuDaCerchio(RectTransform contenitore)
@@ -667,9 +746,11 @@ public class SongListManager : MonoBehaviour
             if (!elenco.activeSelf) elenco.SetActive(true);
         }
         if (cerchio != null) cerchio.SetActive(false);
+        RipristinaLayoutContenitore(contenitore, barra, elenco);
+        RifrescaRaggio();
     }
 
-    private IEnumerator AnimaChiusura(GameObject barra, GameObject elenco, GameObject cerchio)
+    private IEnumerator AnimaChiusura(RectTransform contenitore, GameObject barra, GameObject elenco, GameObject cerchio)
     {
         RectTransform rtBarra = barra != null ? (RectTransform)barra.transform : null;
         RectTransform rtElenco = elenco != null ? (RectTransform)elenco.transform : null;
@@ -682,11 +763,24 @@ public class SongListManager : MonoBehaviour
         CanvasGroup cgBarra = PreparaCanvasGroup(barra);
         CanvasGroup cgElenco = PreparaCanvasGroup(elenco);
 
+        // Il cerchio sta sopra barra/elenco durante il volo, così non viene
+        // occultato dai pannelli che si comprimono sopra di lui.
         if (rtCerchio != null)
         {
             rtCerchio.gameObject.SetActive(true);
             rtCerchio.localScale = Vector3.zero;
+            rtCerchio.SetAsLastSibling();
         }
+
+        // Barra/elenco escono dal layout: la scalatura non deve far impennare
+        // l'altezza del contenitore. Il fitter resta libero e l'altezza viene
+        // animata a mano fino al valore collassato (niente "pop" a SetActive).
+        LayoutElement leBarra = IgnoraLayoutTransitorio(barra, true);
+        LayoutElement leElenco = IgnoraLayoutTransitorio(elenco, true);
+        ContentSizeFitter csf = CsfDelContenitore(contenitore);
+        if (csf != null) csf.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+        float altezzaIniziale = contenitore != null ? contenitore.rect.height : 0f;
+        float altezzaFinale = Mathf.Max(0f, altezzaIniziale - AltezzaIgnorata(leBarra) - AltezzaIgnorata(leElenco));
 
         float durata = 0.25f;
         float t = 0f;
@@ -708,6 +802,8 @@ public class SongListManager : MonoBehaviour
             }
             if (cgElenco != null) cgElenco.alpha = 1f - k;
             if (rtCerchio != null) rtCerchio.localScale = Vector3.one * k;
+            if (contenitore != null)
+                contenitore.sizeDelta = new Vector2(contenitore.sizeDelta.x, Mathf.Lerp(altezzaIniziale, altezzaFinale, k));
             yield return null;
         }
 
@@ -722,10 +818,14 @@ public class SongListManager : MonoBehaviour
             elenco.SetActive(false);
         }
         if (rtCerchio != null) rtCerchio.localScale = Vector3.one;
+        if (contenitore != null && altezzaFinale >= 0f)
+            contenitore.sizeDelta = new Vector2(contenitore.sizeDelta.x, altezzaFinale);
+        RipristinaLayoutTransitorio(barra, leBarra);
+        RipristinaLayoutTransitorio(elenco, leElenco);
         transizioneMenu = false;
     }
 
-    private IEnumerator AnimaApertura(GameObject barra, GameObject elenco, GameObject cerchio)
+    private IEnumerator AnimaApertura(RectTransform contenitore, GameObject barra, GameObject elenco, GameObject cerchio)
     {
         RectTransform rtBarra = barra != null ? (RectTransform)barra.transform : null;
         RectTransform rtElenco = elenco != null ? (RectTransform)elenco.transform : null;
@@ -734,13 +834,25 @@ public class SongListManager : MonoBehaviour
         CanvasGroup cgBarra = PreparaCanvasGroup(barra);
         CanvasGroup cgElenco = PreparaCanvasGroup(elenco);
 
+        // Barra/elenco restano dentro il layout all'apertura: appena attivati il
+        // VerticalLayoutGroup li riposiziona subito al loro posto (in alto), quindi
+        // la transizione scala/sfuma lì senza apparire storti sopra il bottone "+".
+        // L'altezza del contenitore viene comunque animata a mano e il fitter viene
+        // ripristinato solo a fine transizione (si ricalcola allo stesso valore).
+        ContentSizeFitter csf = CsfDelContenitore(contenitore);
+        if (csf != null) csf.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+        float altezzaAttuale = contenitore != null ? contenitore.rect.height : 0f;
+        float altezzaFinale = altezzaAttuale + AltezzaPreferita(barra) + AltezzaPreferita(elenco);
+
         if (barra != null)
         {
+            IgnoraLayoutTransitorio(barra, false);
             Ripristina(barra);
             barra.SetActive(true);
         }
         if (elenco != null)
         {
+            IgnoraLayoutTransitorio(elenco, false);
             Ripristina(elenco);
             elenco.SetActive(true);
         }
@@ -762,6 +874,8 @@ public class SongListManager : MonoBehaviour
             if (rtElenco != null) rtElenco.localScale = Vector3.one * k;
             if (cgElenco != null) cgElenco.alpha = k;
             if (rtCerchio != null) rtCerchio.localScale = Vector3.one * (1f - k);
+            if (contenitore != null)
+                contenitore.sizeDelta = new Vector2(contenitore.sizeDelta.x, Mathf.Lerp(altezzaAttuale, altezzaFinale, k));
             yield return null;
         }
 
@@ -769,7 +883,16 @@ public class SongListManager : MonoBehaviour
         if (rtElenco != null) rtElenco.localScale = Vector3.one;
         if (cgBarra != null) cgBarra.alpha = 1f;
         if (cgElenco != null) cgElenco.alpha = 1f;
+        if (contenitore != null) contenitore.sizeDelta = new Vector2(contenitore.sizeDelta.x, altezzaFinale);
         if (rtCerchio != null) rtCerchio.gameObject.SetActive(false);
+
+        IgnoraLayoutTransitorio(barra, false);
+        IgnoraLayoutTransitorio(elenco, false);
+        if (csf != null)
+        {
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            LayoutRebuilder.MarkLayoutForRebuild(contenitore);
+        }
         transizioneMenu = false;
     }
 
@@ -786,6 +909,58 @@ public class SongListManager : MonoBehaviour
         if (rt != null) rt.localScale = Vector3.one;
         CanvasGroup cg = go.GetComponent<CanvasGroup>();
         if (cg != null) cg.alpha = 1f;
+    }
+
+    // Esce/rientra dal layout il gruppo durante la transizione del menù "+".
+    private static LayoutElement IgnoraLayoutTransitorio(GameObject go, bool ignora)
+    {
+        if (go == null) return null;
+        LayoutElement le = go.GetComponent<LayoutElement>();
+        if (le == null) le = go.AddComponent<LayoutElement>();
+        le.ignoreLayout = ignora;
+        return le;
+    }
+
+    private static void RipristinaLayoutTransitorio(GameObject go, LayoutElement le)
+    {
+        if (go == null) return;
+        if (le == null) le = go.GetComponent<LayoutElement>();
+        if (le != null) le.ignoreLayout = false;
+    }
+
+    private static float AltezzaIgnorata(LayoutElement le)
+    {
+        return le != null ? Mathf.Max(0f, le.preferredHeight) : 0f;
+    }
+
+    // Legge l'altezza preferita senza toccare ignoreLayout (utile in apertura,
+    // dove barra/elenco devono restare dentro il layout).
+    private static float AltezzaPreferita(GameObject go)
+    {
+        if (go == null) return 0f;
+        LayoutElement le = go.GetComponent<LayoutElement>();
+        return le != null ? Mathf.Max(0f, le.preferredHeight) : 0f;
+    }
+
+    private static ContentSizeFitter CsfDelContenitore(RectTransform contenitore)
+    {
+        if (contenitore == null) return null;
+        return contenitore.GetComponent<ContentSizeFitter>();
+    }
+
+    // Ripristina l'auto-layout del contenitore (dopo la chiusura del menù il
+    // fitter era stato liberato per animare l'altezza a mano).
+    private void RipristinaLayoutContenitore(RectTransform contenitore, GameObject barra, GameObject elenco)
+    {
+        if (contenitore == null) return;
+        IgnoraLayoutTransitorio(barra, false);
+        IgnoraLayoutTransitorio(elenco, false);
+        ContentSizeFitter csf = CsfDelContenitore(contenitore);
+        if (csf != null)
+        {
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            LayoutRebuilder.MarkLayoutForRebuild(contenitore);
+        }
     }
 
     // Bottone circolare "+" sotto il bottone Indietro (colori identici al
@@ -1085,7 +1260,7 @@ public class SongListManager : MonoBehaviour
         TextMeshProUGUI cercaLabel = labelGO.AddComponent<TextMeshProUGUI>();
         cercaLabel.text = "Cerca";
         cercaLabel.font = fontAsset;
-        cercaLabel.fontSize = 15;
+        cercaLabel.fontSize = 18;
         cercaLabel.color = Color.white;
         cercaLabel.alignment = TextAlignmentOptions.Center;
         cercaLabel.raycastTarget = false;
@@ -1207,7 +1382,7 @@ public class SongListManager : MonoBehaviour
         rtPh.offsetMax = Vector2.zero;
         ph.text = "Cerca un brano...";
         ph.font = fontAsset;
-        ph.fontSize = 14;
+        ph.fontSize = 18;
         ph.color = GameManager.NavajoWhite;
         ph.raycastTarget = false;
 
@@ -1220,7 +1395,7 @@ public class SongListManager : MonoBehaviour
         rtTxt.offsetMin = Vector2.zero;
         rtTxt.offsetMax = Vector2.zero;
         txt.font = fontAsset;
-        txt.fontSize = 14;
+        txt.fontSize = 18;
         txt.color = Color.white;
         txt.raycastTarget = true;
 
@@ -1228,21 +1403,9 @@ public class SongListManager : MonoBehaviour
         input.placeholder = ph;
         input.textViewport = rtTa;
         input.fontAsset = fontAsset;
-        input.pointSize = 14;
+        input.pointSize = 18;
 
-        input.onValueChanged.AddListener((val) =>
-        {
-            // Durante la ricerca niente liste live: i risultati arrivano solo dopo OK.
-            if (inRicerca) return;
-            if (receiver == null) receiver = FindFirstObjectByType<UdpReceiver>();
-            if (receiver != null)
-            {
-                if (string.IsNullOrEmpty(val))
-                    receiver.InviaComandoListaSongs();
-                else
-                    receiver.InviaComandoSuggerimento(val);
-            }
-        });
+        input.onValueChanged.AddListener(AccodaSuggerimento);
 
         return input;
     }
@@ -1298,7 +1461,7 @@ public class SongListManager : MonoBehaviour
         rtReadLabel.offsetMax = new Vector2(-8f, -2f);
         TextMeshProUGUI readLabel = readLabelGO.AddComponent<TextMeshProUGUI>();
         readLabel.font = fontAsset;
-        readLabel.fontSize = 15;
+        readLabel.fontSize = 19;
         readLabel.color = GameManager.NavajoWhite;
         readLabel.alignment = TextAlignmentOptions.Left;
         readLabel.enableWordWrapping = false;
@@ -1380,7 +1543,7 @@ public class SongListManager : MonoBehaviour
             TextMeshProUGUI lab = labGO.AddComponent<TextMeshProUGUI>();
             lab.text = tasto;
             lab.font = fontAsset;
-            lab.fontSize = rigaLarga ? 14f : 15f;
+            lab.fontSize = rigaLarga ? 18f : 19f;
             lab.color = Color.white;
             lab.alignment = TextAlignmentOptions.Center;
             GameManager.ApplicaStileTesto(lab);
@@ -1455,7 +1618,7 @@ public class SongListManager : MonoBehaviour
         TextMeshProUGUI lab = msgGO.AddComponent<TextMeshProUGUI>();
         lab.text = testo;
         lab.font = fontAsset;
-        lab.fontSize = 14;
+        lab.fontSize = 18;
         lab.color = GameManager.NavajoWhite;
         lab.alignment = TextAlignmentOptions.Center;
         lab.raycastTarget = false;
@@ -1500,7 +1663,7 @@ public class SongListManager : MonoBehaviour
         rtLabel.offsetMax = new Vector2(-8f, -2f);
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
         label.font = fontAsset;
-        label.fontSize = 11;
+        label.fontSize = 16;
         label.color = Color.white;
         label.alignment = TextAlignmentOptions.Left;
         label.enableWordWrapping = false;

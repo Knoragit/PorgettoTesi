@@ -139,6 +139,15 @@ public class RaggioPuntatore : MonoBehaviour
         grafiche = FindObjectsByType<Graphic>(FindObjectsSortMode.None);
     }
 
+    // Forza l'aggiornamento immediato della cache: chiamato quando la UI cambia
+    // (lista canzoni ricostruita, menù chiuso/aperto), così il laser non insegue
+    // con mezzo secondo di ritardo elementi vecchi/distrutti (sfarfallio).
+    public void RinfrescaOra()
+    {
+        prossimoRinfresco = 0f;
+        RinfrescaCache();
+    }
+
     // Preferisce la mano (tra quelle tracciate) il cui raggio interseca già il
     // piano del canvas; se nessuna lo punta, usa la prima mano tracciata valida.
     private bool ProvaRayMano(out Ray ray, out string sorgente)

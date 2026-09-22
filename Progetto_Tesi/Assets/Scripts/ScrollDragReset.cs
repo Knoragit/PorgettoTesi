@@ -5,6 +5,8 @@ using UnityEngine.EventSystems;
 // contenuto, cosi' i bottoni accesi durante lo scroll si spengono da soli.
 public class ScrollDragReset : MonoBehaviour, IBeginDragHandler, IEndDragHandler
 {
+    private static SongListManager slmCache;
+
     public void OnBeginDrag(PointerEventData eventData)
     {
         Rilascia();
@@ -17,7 +19,7 @@ public class ScrollDragReset : MonoBehaviour, IBeginDragHandler, IEndDragHandler
 
     private void Rilascia()
     {
-        SongListManager slm = FindFirstObjectByType<SongListManager>();
-        if (slm != null) slm.RilasciaIndietro();
+        if (slmCache == null) slmCache = FindFirstObjectByType<SongListManager>();
+        if (slmCache != null) slmCache.RilasciaIndietro();
     }
 }

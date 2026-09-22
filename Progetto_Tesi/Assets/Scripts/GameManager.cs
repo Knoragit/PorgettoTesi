@@ -203,6 +203,7 @@ public class GameManager : MonoBehaviour
 
     void Start()
     {
+        Application.targetFrameRate = 72;
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
         CreaBottoneHomeTutorial();
         IngrandisciBottoniUI();

@@ -20,6 +20,8 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
     private float targetNorm = 1f;
     private bool dragging = false;
     private bool hovering = false;
+    private bool eccedeStabile = false;
+    private static SongListManager slmCache;
     private float lastDragEventTime = 0f;
     private ScrollRect.MovementType savedMovementType;
     private bool righeBloccate = false;
@@ -31,10 +33,24 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
         if (scroll == null || handle == null || handleImg == null || trackImg == null) return;
 
         float k = 1f - Mathf.Exp(-14f * Time.deltaTime);
-        bool eccede = ContenutoEccede();
 
-        if (handle.gameObject.activeSelf != eccede) handle.gameObject.SetActive(eccede);
-        if (!eccede) return;
+        // Isteresi: senza, quando l'altezza del contenuto oscilla attorno al
+        // limite (es. durante i rebuild della lista) la manopola si accende e
+        // spegne ogni frame -> lampeggio visibile.
+        float rapporto = 1f;
+        if (scroll.content != null && scroll.viewport != null && scroll.viewport.rect.height > 0.01f)
+            rapporto = scroll.content.rect.height / scroll.viewport.rect.height;
+        if (eccedeStabile)
+        {
+            if (rapporto < 0.98f) eccedeStabile = false;
+        }
+        else
+        {
+            if (rapporto > 1.02f) eccedeStabile = true;
+        }
+
+        if (handle.gameObject.activeSelf != eccedeStabile) handle.gameObject.SetActive(eccedeStabile);
+        if (!eccedeStabile) return;
 
         AggiornaDimensioneHandle();
 
@@ -178,8 +194,8 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
     // Ogni uso della scrollbar pulisce lo stato evidenziato del bottone "Indietro".
     private void RilasciaIndietroOra()
     {
-        SongListManager slm = FindFirstObjectByType<SongListManager>();
-        if (slm != null) slm.RilasciaIndietro();
+        if (slmCache == null) slmCache = FindFirstObjectByType<SongListManager>();
+        if (slmCache != null) slmCache.RilasciaIndietro();
     }
 
     private bool ContenutoEccede()
