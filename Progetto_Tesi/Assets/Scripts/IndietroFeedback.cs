@@ -23,6 +23,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     private Color coloreHover;
     private Color colorePremuto;
     private bool colorePremutoImpostato = false;
+    private bool coloreHoverImpostato = false;
     private bool premuto = false;
 
     void Start()
@@ -31,7 +32,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
         btn = GetComponent<Button>();
         if (btn != null)
         {
-            coloreHover = btn.colors.highlightedColor;
+            if (!coloreHoverImpostato) coloreHover = btn.colors.highlightedColor;
             btn.transition = Selectable.Transition.None;
         }
         if (img != null) coloreBase = img.color;
@@ -45,6 +46,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     {
         coloreBase = baseC;
         coloreHover = hoverC;
+        coloreHoverImpostato = true;
         colorePremuto = hoverC;
         colorePremutoImpostato = true;
         if (img != null) img.color = coloreBase;

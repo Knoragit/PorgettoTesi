@@ -51,6 +51,10 @@ public class BranoDinamicoUI : MonoBehaviour
         // Se eravamo in modalità ricerca, la canzone scelta è partita: torna la
         // lista completa (lista iniziale + il brano cercato).
         SongListManager slm = FindFirstObjectByType<SongListManager>();
-        if (slm != null) slm.CanzoneAvviata();
+        if (slm != null)
+        {
+            slm.CanzoneAvviata();
+            slm.ChiudiMenuCorrente();
+        }
     }
 }

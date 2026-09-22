@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.EventSystems;
 
@@ -24,6 +25,13 @@ public class SongListManager : MonoBehaviour
     private IndietroFeedback indietroSeguimi;
     private readonly List<GameObject> bottoniObserver = new List<GameObject>();
     private readonly List<GameObject> bottoniSeguimi = new List<GameObject>();
+
+    private bool menuObserverAperto = true;
+    private bool menuSeguimiAperto = true;
+    private GameObject cerchioObserver;
+    private GameObject cerchioSeguimi;
+    private bool transizioneMenu = false;
+    private static Sprite spriteCerchio;
 
     // Stato "modalità ricerca": nasconde l'elenco DB, mostra la tastiera e dopo OK
     // i bottoni mostrano SOLO i risultati della ricerca.
@@ -97,6 +105,9 @@ public class SongListManager : MonoBehaviour
 
         indietroObserver = AgganciaIndietro(contenitoreObserver);
         indietroSeguimi = AgganciaIndietro(contenitoreSeguimi);
+
+        cerchioObserver = CreaCerchioPlus(contenitoreObserver);
+        cerchioSeguimi = CreaCerchioPlus(contenitoreSeguimi);
 
         AggiornaGruppoAttivo();
     }
@@ -282,9 +293,17 @@ public class SongListManager : MonoBehaviour
         if (gameManager.statoAttuale != statoPrecedente)
         {
             GameManager.AppState statoInUscita = statoPrecedente;
+            GameManager.AppState statoInEntrata = gameManager.statoAttuale;
             statoPrecedente = gameManager.statoAttuale;
             TerminaRicerca(false);
             AggiornaGruppoAttivo();
+
+            if (statoInEntrata == GameManager.AppState.Osservatore ||
+                statoInEntrata == GameManager.AppState.Seguimi)
+            {
+                InizializzaMenuAperto(statoInEntrata == GameManager.AppState.Osservatore
+                    ? contenitoreObserver : contenitoreSeguimi);
+            }
 
             // Uscita dalle modalità esecutive (Osservatore/Seguimi): stop
             // difensivo così riproduzione e colonne vengono sempre fermate,
@@ -554,6 +573,309 @@ public class SongListManager : MonoBehaviour
             vis.ResetVisualizer();
             vis.PulisciNoteAtteseVisive();
         }
+    }
+
+    private static GameObject TrovaElencoScroll(RectTransform contenitore)
+    {
+        if (contenitore == null) return null;
+        Transform el = contenitore.Find("ElencoBrani");
+        return el != null ? el.gameObject : null;
+    }
+
+    private RectTransform ContenitoreCorrente()
+    {
+        if (gameManager == null) return null;
+        if (gameManager.statoAttuale == GameManager.AppState.Osservatore) return contenitoreObserver;
+        if (gameManager.statoAttuale == GameManager.AppState.Seguimi) return contenitoreSeguimi;
+        return null;
+    }
+
+    // Chiamata a fine avvio brano: il menù si chiude dentro il cerchio "+"
+    // lasciando spazio alle colonne, con mini animazione di chiusura.
+    public void ChiudiMenuCorrente()
+    {
+        RectTransform contenitore = ContenitoreCorrente();
+        if (contenitore == null || transizioneMenu) return;
+
+        bool siamoObserver = contenitore == contenitoreObserver;
+        if (siamoObserver)
+        {
+            if (!menuObserverAperto) return;
+            menuObserverAperto = false;
+        }
+        else
+        {
+            if (!menuSeguimiAperto) return;
+            menuSeguimiAperto = false;
+        }
+
+        GameObject barra = siamoObserver ? barraObserver : barraSeguimi;
+        GameObject elenco = TrovaElencoScroll(contenitore);
+        GameObject cerchio = siamoObserver ? cerchioObserver : cerchioSeguimi;
+        transizioneMenu = true;
+        StartCoroutine(AnimaChiusura(barra, elenco, cerchio));
+    }
+
+    public void ApriMenu(RectTransform contenitore)
+    {
+        if (contenitore == null || transizioneMenu) return;
+
+        bool siamoObserver = contenitore == contenitoreObserver;
+        if (siamoObserver)
+        {
+            if (menuObserverAperto) return;
+            menuObserverAperto = true;
+        }
+        else
+        {
+            if (menuSeguimiAperto) return;
+            menuSeguimiAperto = true;
+        }
+
+        GameObject barra = siamoObserver ? barraObserver : barraSeguimi;
+        GameObject elenco = TrovaElencoScroll(contenitore);
+        GameObject cerchio = siamoObserver ? cerchioObserver : cerchioSeguimi;
+        transizioneMenu = true;
+        StartCoroutine(AnimaApertura(barra, elenco, cerchio));
+    }
+
+    private void ApriMenuDaCerchio(RectTransform contenitore)
+    {
+        FermaRiproduzione();
+        ApriMenu(contenitore);
+    }
+
+    private void InizializzaMenuAperto(RectTransform contenitore)
+    {
+        if (contenitore == null) return;
+        bool siamoObserver = contenitore == contenitoreObserver;
+        if (siamoObserver) menuObserverAperto = true;
+        else menuSeguimiAperto = true;
+
+        GameObject barra = siamoObserver ? barraObserver : barraSeguimi;
+        GameObject elenco = TrovaElencoScroll(contenitore);
+        GameObject cerchio = siamoObserver ? cerchioObserver : cerchioSeguimi;
+
+        if (barra != null)
+        {
+            Ripristina(barra);
+            if (!barra.activeSelf) barra.SetActive(true);
+        }
+        if (elenco != null)
+        {
+            Ripristina(elenco);
+            if (!elenco.activeSelf) elenco.SetActive(true);
+        }
+        if (cerchio != null) cerchio.SetActive(false);
+    }
+
+    private IEnumerator AnimaChiusura(GameObject barra, GameObject elenco, GameObject cerchio)
+    {
+        RectTransform rtBarra = barra != null ? (RectTransform)barra.transform : null;
+        RectTransform rtElenco = elenco != null ? (RectTransform)elenco.transform : null;
+        RectTransform rtCerchio = cerchio != null ? (RectTransform)cerchio.transform : null;
+
+        Vector3 destinazione = cerchio != null ? cerchio.transform.position : Vector3.zero;
+        Vector3 posBarra = rtBarra != null ? rtBarra.position : destinazione;
+        Vector3 posElenco = rtElenco != null ? rtElenco.position : destinazione;
+
+        CanvasGroup cgBarra = PreparaCanvasGroup(barra);
+        CanvasGroup cgElenco = PreparaCanvasGroup(elenco);
+
+        if (rtCerchio != null)
+        {
+            rtCerchio.gameObject.SetActive(true);
+            rtCerchio.localScale = Vector3.zero;
+        }
+
+        float durata = 0.25f;
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime / durata;
+            t = Mathf.Min(t, 1f);
+            float k = 1f - Mathf.Pow(1f - t, 3f);
+            if (rtBarra != null)
+            {
+                rtBarra.position = Vector3.Lerp(posBarra, destinazione, k);
+                rtBarra.localScale = Vector3.one * (1f - k);
+            }
+            if (cgBarra != null) cgBarra.alpha = 1f - k;
+            if (rtElenco != null)
+            {
+                rtElenco.position = Vector3.Lerp(posElenco, destinazione, k);
+                rtElenco.localScale = Vector3.one * (1f - k);
+            }
+            if (cgElenco != null) cgElenco.alpha = 1f - k;
+            if (rtCerchio != null) rtCerchio.localScale = Vector3.one * k;
+            yield return null;
+        }
+
+        if (barra != null)
+        {
+            Ripristina(barra);
+            barra.SetActive(false);
+        }
+        if (elenco != null)
+        {
+            Ripristina(elenco);
+            elenco.SetActive(false);
+        }
+        if (rtCerchio != null) rtCerchio.localScale = Vector3.one;
+        transizioneMenu = false;
+    }
+
+    private IEnumerator AnimaApertura(GameObject barra, GameObject elenco, GameObject cerchio)
+    {
+        RectTransform rtBarra = barra != null ? (RectTransform)barra.transform : null;
+        RectTransform rtElenco = elenco != null ? (RectTransform)elenco.transform : null;
+        RectTransform rtCerchio = cerchio != null ? (RectTransform)cerchio.transform : null;
+
+        CanvasGroup cgBarra = PreparaCanvasGroup(barra);
+        CanvasGroup cgElenco = PreparaCanvasGroup(elenco);
+
+        if (barra != null)
+        {
+            Ripristina(barra);
+            barra.SetActive(true);
+        }
+        if (elenco != null)
+        {
+            Ripristina(elenco);
+            elenco.SetActive(true);
+        }
+
+        if (rtBarra != null) rtBarra.localScale = Vector3.one * 0.01f;
+        if (rtElenco != null) rtElenco.localScale = Vector3.one * 0.01f;
+        if (cgBarra != null) cgBarra.alpha = 0f;
+        if (cgElenco != null) cgElenco.alpha = 0f;
+
+        float durata = 0.25f;
+        float t = 0f;
+        while (t < 1f)
+        {
+            t += Time.deltaTime / durata;
+            t = Mathf.Min(t, 1f);
+            float k = 1f - Mathf.Pow(1f - t, 3f);
+            if (rtBarra != null) rtBarra.localScale = Vector3.one * k;
+            if (cgBarra != null) cgBarra.alpha = k;
+            if (rtElenco != null) rtElenco.localScale = Vector3.one * k;
+            if (cgElenco != null) cgElenco.alpha = k;
+            if (rtCerchio != null) rtCerchio.localScale = Vector3.one * (1f - k);
+            yield return null;
+        }
+
+        if (rtBarra != null) rtBarra.localScale = Vector3.one;
+        if (rtElenco != null) rtElenco.localScale = Vector3.one;
+        if (cgBarra != null) cgBarra.alpha = 1f;
+        if (cgElenco != null) cgElenco.alpha = 1f;
+        if (rtCerchio != null) rtCerchio.gameObject.SetActive(false);
+        transizioneMenu = false;
+    }
+
+    private static CanvasGroup PreparaCanvasGroup(GameObject go)
+    {
+        if (go == null) return null;
+        return go.GetComponent<CanvasGroup>() ?? go.AddComponent<CanvasGroup>();
+    }
+
+    private static void Ripristina(GameObject go)
+    {
+        if (go == null) return;
+        RectTransform rt = go.transform as RectTransform;
+        if (rt != null) rt.localScale = Vector3.one;
+        CanvasGroup cg = go.GetComponent<CanvasGroup>();
+        if (cg != null) cg.alpha = 1f;
+    }
+
+    // Bottone circolare "+" sotto il bottone Indietro (colori identici al
+    // "Torna al Menù": Alabaster, hover Pacific Cyan, pressione Iron Grey).
+    private GameObject CreaCerchioPlus(RectTransform contenitore)
+    {
+        if (contenitore == null) return null;
+
+        RectTransform indietro = TrovaIndietro(contenitore);
+        float diametro = indietro != null ? Mathf.Abs(indietro.sizeDelta.y) : 57.5f;
+        float xBase = indietro != null ? indietro.anchoredPosition.x : -150f;
+        float yBase = indietro != null ? indietro.anchoredPosition.y : 125f;
+
+        GameObject cerchioGO = new GameObject("BottonePlus", typeof(RectTransform));
+        cerchioGO.transform.SetParent(contenitore, false);
+
+        RectTransform rt = (RectTransform)cerchioGO.transform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(xBase, yBase - diametro - 5f);
+        rt.sizeDelta = new Vector2(diametro, diametro);
+
+        LayoutElement le = cerchioGO.AddComponent<LayoutElement>();
+        le.ignoreLayout = true;
+
+        Image img = cerchioGO.AddComponent<Image>();
+        img.sprite = SpriteCerchio;
+        img.type = Image.Type.Simple;
+        img.color = GameManager.AlabasterGrey;
+
+        Button btn = cerchioGO.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        IndietroFeedback feedback = cerchioGO.AddComponent<IndietroFeedback>();
+        feedback.ImpostaColori(GameManager.AlabasterGrey, GameManager.PacificCyan);
+        feedback.ImpostaColorePremuto(GameManager.IronGrey);
+
+        GameObject labelGO = CrearGOFiglio(cerchioGO.transform, "Testo");
+        RectTransform rtLabel = (RectTransform)labelGO.transform;
+        rtLabel.anchorMin = Vector2.zero;
+        rtLabel.anchorMax = Vector2.one;
+        rtLabel.offsetMin = Vector2.zero;
+        rtLabel.offsetMax = Vector2.zero;
+        TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.text = "+";
+        label.font = fontAsset;
+        label.fontSize = diametro * 0.4f;
+        label.color = Color.black;
+        label.alignment = TextAlignmentOptions.Center;
+        label.raycastTarget = false;
+        GameManager.ApplicaStileTesto(label);
+
+        btn.onClick.AddListener(() => ApriMenuDaCerchio(contenitore));
+
+        cerchioGO.SetActive(false);
+        return cerchioGO;
+    }
+
+    private static Sprite SpriteCerchio
+    {
+        get
+        {
+            if (spriteCerchio == null) spriteCerchio = CreaSpriteCerchioProc();
+            return spriteCerchio;
+        }
+    }
+
+    private static Sprite CreaSpriteCerchioProc()
+    {
+        const int DIM = 128;
+        Texture2D tex = new Texture2D(DIM, DIM, TextureFormat.RGBA32, false);
+        float centro = (DIM - 1) * 0.5f;
+        float raggio = centro - 1f;
+        Color[] px = new Color[DIM * DIM];
+        for (int y = 0; y < DIM; y++)
+        {
+            for (int x = 0; x < DIM; x++)
+            {
+                float dx = x - centro;
+                float dy = y - centro;
+                float distanza = Mathf.Sqrt(dx * dx + dy * dy);
+                float alpha = Mathf.Clamp01(raggio - distanza + 1f);
+                px[y * DIM + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+        tex.SetPixels(px);
+        tex.Apply(false, true);
+        return Sprite.Create(tex, new Rect(0, 0, DIM, DIM), new Vector2(0.5f, 0.5f), 100f,
+                             0, SpriteMeshType.FullRect, Vector4.zero);
     }
 
     private void SvuotaBottoni(List<GameObject> lista)
