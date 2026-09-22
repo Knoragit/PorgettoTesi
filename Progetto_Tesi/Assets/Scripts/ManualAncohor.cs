@@ -15,7 +15,7 @@ public class ManualAnchor : MonoBehaviour
     public Vector3 offsetCanvasDalPiano = new Vector3(0.60f, 0.25f, 0.20f);
     // X = 0.60 (Centrato lungo la tastiera 88 tasti)
     // Y = 0.25 (Altezza sopra i tasti)
-    // Z = 0.20 (Profondit�: dietro le colonne 3D)
+    // Z = 0.20 (Profondità: dietro le colonne 3D)
 
     [Header("Materiali Sfere di Feedback (Opzionale)")]
     public Material materialePunto1; // Es. Rosso (Estremo Sinistro)
@@ -38,7 +38,7 @@ public class ManualAnchor : MonoBehaviour
     private float lastPinchTime = 0f;
     private bool diagnosticStampato = false;
 
-    // Distanza teorica in metri tra il tasto pi� a sinistra e quello pi� a destra (1.1985m su 88 tasti)
+    // Distanza teorica in metri tra il tasto più a sinistra e quello più a destra (1.1985m su 88 tasti)
     private const float LARGHEZZA_TEORICA_TASTIERA = 1.1985f;
 
     void Start()
@@ -114,7 +114,7 @@ public class ManualAnchor : MonoBehaviour
             Debug.Log($"[CALIBRAZIONE] DIAG camera pos={mainCameraTransform.position} fwd={mainCameraTransform.forward} | sfera active={guideSphere != null && guideSphere.activeInHierarchy} worldPos={(guideSphere != null ? guideSphere.transform.position.ToString("F3") : "n/a")} scale={(guideSphere != null ? guideSphere.transform.lossyScale.ToString("F3") : "n/a")} rendererEnabled={(r != null ? r.enabled.ToString() : "n/a")} bounds={(r != null ? r.bounds.ToString("F3") : "n/a")}");
         }
 
-        // Se abbiamo completato la calibrazione, non facciamo pi� nulla
+        // Se abbiamo completato la calibrazione, non facciamo più nulla
         if (currentStep >= 3 || guideSphere == null) return;
 
         // Proietta la sfera guida davanti all'utente per permettergli di mirare agli sticker
@@ -188,7 +188,7 @@ public class ManualAnchor : MonoBehaviour
         Vector3 upDir = Vector3.up;
         Vector3 forwardDir = Vector3.Cross(rightDir, upDir).normalized;
 
-        // --- 2. SPOSTAMENTO IN PROFONDIT� ---
+        // --- 2. SPOSTAMENTO IN PROFONDITÀ ---
         float profonditaPunto3 = Vector3.Dot(p3 - p1, forwardDir);
         Vector3 posizioneArretrata = p1 + (forwardDir * profonditaPunto3);
 
@@ -340,13 +340,13 @@ public class ManualAnchor : MonoBehaviour
         switch (currentStep)
         {
             case 0:
-                instructionalText.text = "<color=#FF5555><b>PUNTO 1</b></color>\n\nMira allo sticker <color=#FF5555><b>ROSSO</b></color> (Estremo Sinistro) e fai Pinch.";
+                instructionalText.text = "<color=#FF5555><b>PUNTO 1</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#FF5555><b>ROSSO</b></color> (Estremo Sinistro) e fai pinch con la mano destra.";
                 break;
             case 1:
-                instructionalText.text = "<color=#5555FF><b>PUNTO 2</b></color>\n\nMira allo sticker <color=#5555FF><b>BLU</b></color> (Estremo Destro) e fai Pinch.";
+                instructionalText.text = "<color=#5555FF><b>PUNTO 2</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#5555FF><b>BLU</b></color> (Estremo Destro) e fai pinch con la mano destra.";
                 break;
             case 2:
-                instructionalText.text = "<color=#55FF55><b>PUNTO 3</b></color>\n\nMira allo sticker <color=#55FF55><b>VERDE</b></color> (Do Centrale) e fai Pinch.";
+                instructionalText.text = "<color=#55FF55><b>PUNTO 3</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#55FF55><b>VERDE</b></color> (Do Centrale) e fai pinch con la mano destra.";
                 break;
             case 3:
                 instructionalText.text = "<color=#FFFF55><b>CALIBRAZIONE COMPLETATA!</b></color>";

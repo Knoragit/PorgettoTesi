@@ -21,7 +21,7 @@ public class GameManager : MonoBehaviour
     public GameObject seguimiGroup;
     public GameObject faiTuGroup;
 
-    [Header("UI Specifica Modalit� Fai Tu")]
+    [Header("UI Specifica Modalità Fai Tu")]
     public GameObject faiTuBannerMessaggio;
     public GameObject faiTuReportMessaggio;
 
@@ -35,7 +35,7 @@ public class GameManager : MonoBehaviour
     private float ultimaVelocita = 0f;
     public int sfidaAttuale = 0;
 
-    // Gestione Note per la modalit� "Seguimi"
+    // Gestione Note per la modalità "Seguimi"
     private List<int> expectedNotes = new List<int>();
     private HashSet<int> userPressedNotes = new HashSet<int>();
 
@@ -206,12 +206,38 @@ public class GameManager : MonoBehaviour
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
         CreaBottoneHomeTutorial();
         IngrandisciBottoniUI();
+        SistemaTestiUI();
 
         GameObject raggioGO = new GameObject("RaggioPuntatore");
         raggioGO.transform.SetParent(this.transform, false);
         raggioGO.AddComponent<RaggioPuntatore>();
 
         StartCoroutine(UniformaBottoniTornaDopoFrame());
+    }
+
+    private void SistemaTestiUI()
+    {
+        if (tutorialText != null)
+        {
+            RectTransform rtTutorial = tutorialText.transform as RectTransform;
+            if (rtTutorial != null)
+            {
+                rtTutorial.anchorMin = new Vector2(0.5f, 0.5f);
+                rtTutorial.anchorMax = new Vector2(0.5f, 0.5f);
+                rtTutorial.pivot = new Vector2(0.5f, 0.5f);
+                rtTutorial.anchoredPosition = Vector2.zero;
+                rtTutorial.sizeDelta = new Vector2(440f, 360f);
+            }
+            tutorialText.alignment = TextAlignmentOptions.Center;
+            tutorialText.enableWordWrapping = true;
+        }
+
+        if (faiTuReportMessaggio != null)
+        {
+            TextMeshProUGUI reportText = faiTuReportMessaggio.GetComponent<TextMeshProUGUI>();
+            if (reportText != null)
+                reportText.text = "Report Generato!\n\nLo trovi nella cartella Sessioni";
+        }
     }
 
     // Rende il bottone "Torna al Menù" identico in tutte le modalità: copia lo
@@ -483,7 +509,7 @@ public class GameManager : MonoBehaviour
 
         statoAttuale = nuovoStato;
 
-        // Visibilit� pannelli
+        // Visibilità pannelli
         if (calibrationGroup != null) calibrationGroup.SetActive(statoAttuale == AppState.Onboarding);
         if (menuGroup != null) menuGroup.SetActive(statoAttuale == AppState.Menu);
         if (tutorialGroup != null) tutorialGroup.SetActive(statoAttuale == AppState.Tutorial);
@@ -643,7 +669,7 @@ public class GameManager : MonoBehaviour
         if (calibrator != null) calibrator.ResettaStatoCalibrazione();
     }
 
-    // --- RICEZIONE NOTE ATTESE DA PYTHON (MODALIT� SEGUIMI) ---
+    // --- RICEZIONE NOTE ATTESE DA PYTHON (MODALITÀ SEGUIMI) ---
     public void ImpostaNoteAttese(int[] notes)
     {
         if (statoAttuale != AppState.Seguimi) return;
@@ -715,14 +741,14 @@ public class GameManager : MonoBehaviour
                 case 1:
                     if (velocity < 0.236f)
                     {
-                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una scala crescente (note verso destra sempre pi� forti)"));
+                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una scala crescente di 4 note (note verso destra sempre pi\u00F9 forti)"));
                     }
                     break;
 
                 case 2:
                     if (ultimaNotaMidi != -1 && nota == ultimaNotaMidi + 1 && velocity > ultimaVelocita)
                     {
-                        StartCoroutine(TransizioneSfidaCoroutine(3, "SFIDA 3:\nEsegui lo 'Staccato' (lascia un netto distacco di silenzio tra le note)"));
+                        StartCoroutine(TransizioneSfidaCoroutine(3, "SFIDA 3:\nEsegui lo 'Staccato' (Suona le due note in rapida successione con un tocco brevissimo e staccato su ciascuna, come se i tasti scottassero)"));
                     }
                     ultimaNotaMidi = nota;
                     ultimaVelocita = velocity;
@@ -735,7 +761,7 @@ public class GameManager : MonoBehaviour
                     }
                     else if (tempoUltimoRilascio > 0 && ceSovrapposizioneKOT)
                     {
-                        StartCoroutine(TransizioneErroreCoroutine("Errore: Note sovrapposte!", "SFIDA 3:\nEsegui lo 'Staccato' (lascia un netto distacco di silenzio tra le note)"));
+                        StartCoroutine(TransizioneErroreCoroutine("Errore: Note sovrapposte!", "SFIDA 3:\nEsegui lo 'Staccato' (Suona le due note in rapida successione con un tocco brevissimo e staccato su ciascuna, come se i tasti scottassero)"));
                     }
                     break;
 
@@ -792,7 +818,7 @@ public class GameManager : MonoBehaviour
     {
         inTransizione = true;
         sfidaAttuale = 0;
-        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men�...";
+        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men\u00F9...";
 
         yield return new WaitForSeconds(3.5f);
         AttivaMenu();
