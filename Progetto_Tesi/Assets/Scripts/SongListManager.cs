@@ -33,7 +33,7 @@ public class SongListManager : MonoBehaviour
     private bool transizioneMenu = false;
     private static Sprite spriteCerchio;
 
-    // Stato "modalità ricerca": nasconde l'elenco DB, mostra la tastiera e dopo OK
+    // Stato "modalità ricerca": nasconde l'elenco DB, mostra la tastiera e dopo Cerca
     // i bottoni mostrano SOLO i risultati della ricerca.
     private bool inRicerca = false;
     private string queryRicerca = "";
@@ -45,7 +45,7 @@ public class SongListManager : MonoBehaviour
     private float altezzaScorrRicerca = 300f;
     private Vector2 posOrigRicerca = Vector2.zero;
     private float indietroLocXOrig = -150f;
-    private const float LARGHEZZA_RICERCA = 160f;
+    private const float LARGHEZZA_RICERCA = 250f;
 
     // Firme (id in ordine) dell'ultima lista renderizzata: servono a saltare la
     // ricostruzione quando il contenuto non cambia (anti-sfarfallio).
@@ -624,7 +624,7 @@ public class SongListManager : MonoBehaviour
     // dopo ~300ms da fermo, così non si ricostruisce la lista a ogni tasto.
     private void AccodaSuggerimento(string val)
     {
-        // Durante la ricerca niente liste live: i risultati arrivano solo dopo OK.
+        // Durante la ricerca niente liste live: i risultati arrivano solo dopo Cerca.
         if (inRicerca) return;
 
         queryDebounce = val;
@@ -963,7 +963,7 @@ public class SongListManager : MonoBehaviour
         }
     }
 
-    // Bottone circolare "+" sotto il bottone Indietro (colori identici al
+    // Bottone circolare "+" a destra del bottone Indietro (colori identici al
     // "Torna al Menù": Alabaster, hover Pacific Cyan, pressione Iron Grey).
     private GameObject CreaCerchioPlus(RectTransform contenitore)
     {
@@ -981,7 +981,7 @@ public class SongListManager : MonoBehaviour
         rt.anchorMin = new Vector2(0.5f, 0.5f);
         rt.anchorMax = new Vector2(0.5f, 0.5f);
         rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(xBase, yBase - diametro - 5f);
+        rt.anchoredPosition = new Vector2(xBase + diametro + diametro * 0.5f + 8f, yBase);
         rt.sizeDelta = new Vector2(diametro, diametro);
 
         LayoutElement le = cerchioGO.AddComponent<LayoutElement>();
@@ -1229,12 +1229,17 @@ public class SongListManager : MonoBehaviour
         hlg.childForceExpandHeight = true;
         hlg.childForceExpandWidth = false;
         hlg.padding = new RectOffset(0, 0, 0, 0);
+        hlg.childAlignment = TextAnchor.MiddleCenter;
 
+        // Campo di testo nascosto: fa da buffer per la tastiera (i tasti ci
+        // digitano dentro e il readout della tastiera mostra il testo). Essendo
+        // inattivo non partecipa al layout, quindi nella barra resta solo Cerca.
         TMP_InputField input = CreaInputField(root.transform, isObserver);
+        input.gameObject.SetActive(false);
 
         GameObject cercaGO = CrearGOFiglio(root.transform, "Cerca");
         LayoutElement leCerca = cercaGO.AddComponent<LayoutElement>();
-        leCerca.preferredWidth = 104f;
+        leCerca.preferredWidth = 130f;
 
         Image cercaImg = cercaGO.AddComponent<Image>();
         cercaImg.sprite = bottoneSpr;
@@ -1329,10 +1334,13 @@ public class SongListManager : MonoBehaviour
             }
             else
             {
-                // GIA' in ricerca: chiudi/riapri la tastiera mantenendo i risultati.
-                tastiera.SetActive(!tastiera.activeSelf);
-                if (tastiera.activeSelf)
+                // GIA' in ricerca: con la tastiera chiusa la riapre per modificare il
+                // testo (mostrando di nuovo i risultati sotto); con la tastiera aperta
+                // fa quello che faceva il tasto OK: esegue la ricerca, oppure esce
+                // dalla ricerca se il testo e' vuoto.
+                if (!tastiera.activeSelf)
                 {
+                    tastiera.SetActive(true);
                     tastiera.transform.SetAsLastSibling();
                     if (elencoAttivo != null)
                     {
@@ -1342,8 +1350,21 @@ public class SongListManager : MonoBehaviour
                         PortaScrollInCima(elencoAttivo.GetComponent<ScrollRect>());
                     }
                     input.ActivateInputField();
+                    Debug.Log("[UDP] Ricerca: tastiera riaperta per modificare il testo (risultati mantenuti).");
                 }
-                Debug.Log("[UDP] Ricerca: tastiera " + (tastiera.activeSelf ? "riaperta" : "chiusa") + " (risultati mantenuti).");
+                else
+                {
+                    tastiera.SetActive(false);
+                    if (string.IsNullOrWhiteSpace(input.text))
+                    {
+                        TerminaRicerca(true);
+                    }
+                    else
+                    {
+                        AvviaRicerca(input.text);
+                    }
+                    Debug.Log("[UDP] Ricerca: ricerca eseguita (tastiera chiusa).");
+                }
             }
         });
 
@@ -1380,7 +1401,7 @@ public class SongListManager : MonoBehaviour
         rtPh.anchorMax = Vector2.one;
         rtPh.offsetMin = Vector2.zero;
         rtPh.offsetMax = Vector2.zero;
-        ph.text = "Cerca un brano...";
+        ph.text = "";
         ph.font = fontAsset;
         ph.fontSize = 18;
         ph.color = GameManager.NavajoWhite;
@@ -1424,7 +1445,7 @@ public class SongListManager : MonoBehaviour
 
         // Partecipa al layout del contenitore: si posiziona in fondo, sotto l'elenco.
         LayoutElement le = tastiera.AddComponent<LayoutElement>();
-        le.preferredHeight = 208f;
+        le.preferredHeight = 306f;
 
         Image sfondo = tastiera.AddComponent<Image>();
         sfondo.sprite = bottoneSpr;
@@ -1443,7 +1464,7 @@ public class SongListManager : MonoBehaviour
         // Schermo readout: mostra live il testo digitato sulla tastiera.
         GameObject readGO = CrearGOFiglio(tastiera.transform, "Readout");
         LayoutElement leRead = readGO.AddComponent<LayoutElement>();
-        leRead.preferredHeight = 30f;
+        leRead.preferredHeight = 38f;
 
         // Maschera: il testo non puo' mai uscire dai bordi del readout.
         readGO.AddComponent<RectMask2D>();
@@ -1461,7 +1482,7 @@ public class SongListManager : MonoBehaviour
         rtReadLabel.offsetMax = new Vector2(-8f, -2f);
         TextMeshProUGUI readLabel = readLabelGO.AddComponent<TextMeshProUGUI>();
         readLabel.font = fontAsset;
-        readLabel.fontSize = 19;
+        readLabel.fontSize = 20;
         readLabel.color = GameManager.NavajoWhite;
         readLabel.alignment = TextAlignmentOptions.Left;
         readLabel.enableWordWrapping = false;
@@ -1474,10 +1495,11 @@ public class SongListManager : MonoBehaviour
             readLabel.text = string.IsNullOrEmpty(v) ? "Scrivi il brano" : "> " + v;
         });
 
-        CreaRigaTastiera(tastiera.transform, input, 30f, "A", "B", "C", "D", "E", "F", "G", "H", "I", "J");
-        CreaRigaTastiera(tastiera.transform, input, 30f, "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T");
-        CreaRigaTastiera(tastiera.transform, input, 30f, "U", "V", "W", "X", "Y", "Z");
-        CreaRigaTastiera(tastiera.transform, input, 30f, "BACK", "SP", "DEL", "AC", "OK");
+        CreaRigaTastiera(tastiera.transform, input, 42f, "A", "B", "C", "D", "E", "F");
+        CreaRigaTastiera(tastiera.transform, input, 42f, "G", "H", "I", "J", "K", "L");
+        CreaRigaTastiera(tastiera.transform, input, 42f, "M", "N", "O", "P", "Q", "R");
+        CreaRigaTastiera(tastiera.transform, input, 42f, "S", "T", "U", "V", "W", "X");
+        CreaRigaTastiera(tastiera.transform, input, 42f, "Y", "Z", "SP", "DEL", "AC", "BACK");
 
         return tastiera;
     }
@@ -1498,10 +1520,8 @@ public class SongListManager : MonoBehaviour
         LayoutElement leRiga = riga.AddComponent<LayoutElement>();
         leRiga.preferredHeight = altezza;
 
-        // Righe con pochi tasti (riga comandi BACK·SP·DEL·AC·OK) si allargano
-        // fino a riempire tutta la larghezza disponibile.
-        bool rigaLarga = tasti.Length <= 5;
-
+        // Ogni riga ha lo stesso numero di tasti (6): tutti con la stessa
+        // flessibilita', così ogni casella ha la stessa dimensione e riempie la riga.
         foreach (string t in tasti)
         {
             string tasto = t;
@@ -1509,16 +1529,8 @@ public class SongListManager : MonoBehaviour
             GameObject te = CrearGOFiglio(riga.transform, "Tasto_" + tasto);
 
             LayoutElement le = te.AddComponent<LayoutElement>();
-            if (rigaLarga)
-            {
-                le.preferredWidth = 0f;
-                le.flexibleWidth = 1f;
-            }
-            else
-            {
-                le.preferredWidth = 10f;
-                le.flexibleWidth = 0f;
-            }
+            le.preferredWidth = 0f;
+            le.flexibleWidth = 1f;
             le.preferredHeight = altezza;
 
             Image img = te.AddComponent<Image>();
@@ -1543,9 +1555,14 @@ public class SongListManager : MonoBehaviour
             TextMeshProUGUI lab = labGO.AddComponent<TextMeshProUGUI>();
             lab.text = tasto;
             lab.font = fontAsset;
-            lab.fontSize = rigaLarga ? 18f : 19f;
+            lab.fontSize = 20f;
+            lab.fontSizeMin = 12f;
+            lab.fontSizeMax = 20f;
+            lab.enableAutoSizing = true;
             lab.color = Color.white;
             lab.alignment = TextAlignmentOptions.Center;
+            lab.enableWordWrapping = false;
+            lab.overflowMode = TextOverflowModes.Overflow;
             GameManager.ApplicaStileTesto(lab);
 
             btn.onClick.AddListener(() => GestisciTastoTastiera(input, tasto, te));
@@ -1578,21 +1595,6 @@ public class SongListManager : MonoBehaviour
                 break;
             case "SP":
                 input.text += " ";
-                break;
-            case "OK":
-                {
-                    Transform t = tastoGO.transform;
-                    if (t.parent != null && t.parent.parent != null)
-                        t.parent.parent.gameObject.SetActive(false);
-                    if (string.IsNullOrWhiteSpace(input.text))
-                    {
-                        TerminaRicerca(true);
-                    }
-                    else
-                    {
-                        AvviaRicerca(input.text);
-                    }
-                }
                 break;
             default:
                 input.text += tasto;
