@@ -29,11 +29,22 @@ public class GameManager : MonoBehaviour
     public TextMeshProUGUI tutorialText;
 
     private UdpReceiver udpReceiver;
-    private int noteAttualmentePremute = 0;
     private float tempoUltimoRilascio = -1f;
     private int ultimaNotaMidi = -1;
     private float ultimaVelocita = 0f;
     public int sfidaAttuale = 0;
+
+    // Anti-rimbalzo per il Tutorial: tiene traccia delle note realmente premute.
+    // Una pressa forte può generare due note_on ravvicinati (sensore/martelletti):
+    // il secondo viene ignorato e il conteggio resta affidabile (contatore derivato
+    // dal set, non da incrementi -> auto-riparante anche con sovrapposizioni).
+    private readonly HashSet<int> tastiTutorialPremuti = new HashSet<int>();
+    // Prima nota della sfida staccato corrente (guardia anti auto-trigger).
+    private int primaNotaStaccato = -1;
+    // Contatore delle note della "Scala dinamica crescente" (SFIDA 2): servono
+    // esattamente 4 note in successione e sempre piu' forti per concludere.
+    private int noteScalaCrescente = 0;
+    private float tempoUltimaNotaScala = -1f;
 
     // Gestione Note per la modalità "Seguimi"
     private List<int> expectedNotes = new List<int>();
@@ -563,7 +574,10 @@ public class GameManager : MonoBehaviour
     public void AttivaTutorial()
     {
         sfidaAttuale = 1;
-        noteAttualmentePremute = 0;
+        tastiTutorialPremuti.Clear();
+        primaNotaStaccato = -1;
+        noteScalaCrescente = 0;
+        tempoUltimaNotaScala = -1f;
         tempoUltimoRilascio = -1f;
         ultimaNotaMidi = -1;
         inTransizione = false;
@@ -734,29 +748,74 @@ public class GameManager : MonoBehaviour
 
         if (action == "press")
         {
+            // Rimbalzo/doppio note_on della stessa nota già premuta: ignorato.
+            // Con le pressioni forti i sensori possono reinviare la nota: senza
+            // questa guardia lo Staccato veniva bloccato silenziosamente.
+            if (!tastiTutorialPremuti.Add(nota))
+            {
+                Debug.Log("[TUTORIAL] Doppia pressione ignorata (nota " + nota + ")");
+                return;
+            }
+
             float kdt = (tempoUltimoRilascio > 0) ? (Time.time - tempoUltimoRilascio) : 0f;
-            bool ceSovrapposizioneKOT = (noteAttualmentePremute > 0);
+            bool ceSovrapposizioneKOT = (tastiTutorialPremuti.Count > 1);
 
             switch (sfidaAttuale)
             {
                 case 1:
                     if (velocity < 0.236f)
                     {
-                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una scala crescente di 4 note (note verso destra sempre pi\u00F9 forti)"));
+                        StartCoroutine(TransizioneSfidaCoroutine(2, "SFIDA 2:\nEsegui una Scala dinamica crescente di 4 note (note verso destra sempre pi\u00F9 forti)"));
                     }
                     break;
 
                 case 2:
-                    if (ultimaNotaMidi != -1 && nota == ultimaNotaMidi + 1 && velocity > ultimaVelocita)
+                    // Scala dinamica crescente: 4 note in successione (qualsiasi
+                    // nota, senza vincolo di direzione) e sempre piu' forti, con
+                    // tolleranza ~10%: un lieve calo non azzera la scala. Note
+                    // troppo ravvicinate (<0.04s) sono ignorate come spurie; una
+                    // pausa oltre i 3s fa ripartire il conteggio da 1.
+                    if (ultimaNotaMidi == -1)
                     {
-                        StartCoroutine(TransizioneSfidaCoroutine(3, "SFIDA 3:\nEsegui lo 'Staccato' (Suona le due note in rapida successione con un tocco brevissimo e staccato su ciascuna, come se i tasti scottassero)"));
+                        noteScalaCrescente = 1;
+                        tempoUltimaNotaScala = Time.time;
+                    }
+                    else
+                    {
+                        float dtScala = Time.time - tempoUltimaNotaScala;
+                        if (dtScala < 0.04f)
+                        {
+                            break;
+                        }
+                        if (dtScala > 3.0f)
+                        {
+                            noteScalaCrescente = 1;
+                        }
+                        else if (velocity >= ultimaVelocita * 0.90f)
+                        {
+                            noteScalaCrescente++;
+                            if (noteScalaCrescente >= 4)
+                            {
+                                StartCoroutine(TransizioneSfidaCoroutine(3, "SFIDA 3:\nEsegui lo 'Staccato' (Suona le due note in rapida successione con un tocco brevissimo e staccato su ciascuna, come se i tasti scottassero)"));
+                            }
+                        }
+                        else
+                        {
+                            noteScalaCrescente = 1;
+                        }
+                        tempoUltimaNotaScala = Time.time;
                     }
                     ultimaNotaMidi = nota;
                     ultimaVelocita = velocity;
                     break;
 
                 case 3:
-                    if (!ceSovrapposizioneKOT && tempoUltimoRilascio > 0 && kdt > 0.05f && kdt < 0.35f)
+                    // Registra la prima nota dello staccato (solo alla prima pollice
+                    // della sfida): la seconda deve essere diversa per avanzare.
+                    if (tastiTutorialPremuti.Count == 1 && primaNotaStaccato == -1)
+                        primaNotaStaccato = nota;
+
+                    if (!ceSovrapposizioneKOT && tempoUltimoRilascio > 0 && kdt > 0.04f && kdt < 0.5f && nota != primaNotaStaccato)
                     {
                         StartCoroutine(TransizioneSfidaCoroutine(4, "SFIDA 4:\nEsegui il 'Legato' (suona la nota successiva prima di rilasciare la precedente)"));
                     }
@@ -777,13 +836,12 @@ public class GameManager : MonoBehaviour
                     }
                     break;
             }
-            noteAttualmentePremute++;
         }
 
         if (action == "release")
         {
-            noteAttualmentePremute = Mathf.Max(0, noteAttualmentePremute - 1);
-            if (noteAttualmentePremute == 0) tempoUltimoRilascio = Time.time;
+            tastiTutorialPremuti.Remove(nota);
+            if (tastiTutorialPremuti.Count == 0) tempoUltimoRilascio = Time.time;
         }
     }
 
@@ -795,10 +853,13 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(2.5f);
 
         sfidaAttuale = prossimaSfida;
+        tastiTutorialPremuti.Clear();
+        primaNotaStaccato = -1;
+        noteScalaCrescente = 0;
+        tempoUltimaNotaScala = -1f;
         tempoUltimoRilascio = -1f;
         ultimaNotaMidi = -1;
         ultimaVelocita = 0f;
-        noteAttualmentePremute = 0;
 
         if (tutorialText != null) tutorialText.text = testoNuovaSfida;
         inTransizione = false;
@@ -811,6 +872,8 @@ public class GameManager : MonoBehaviour
 
         yield return new WaitForSeconds(2.0f);
 
+        // Riparte da zero anche il primo tasto dello staccato per il prossimo tentativo.
+        primaNotaStaccato = -1;
         if (tutorialText != null) tutorialText.text = testoSfidaDaRipristinare;
         inTransizione = false;
     }
@@ -819,6 +882,10 @@ public class GameManager : MonoBehaviour
     {
         inTransizione = true;
         sfidaAttuale = 0;
+        tastiTutorialPremuti.Clear();
+        primaNotaStaccato = -1;
+        noteScalaCrescente = 0;
+        tempoUltimaNotaScala = -1f;
         if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men\u00F9...";
 
         yield return new WaitForSeconds(3.5f);

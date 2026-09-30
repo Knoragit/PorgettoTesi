@@ -338,7 +338,10 @@ public class PianoVisualizer : MonoBehaviour
         }
 
         velocityCalibrata = Mathf.Clamp01(velocityCalibrata);
-        state.currentHeight = altezzaMassimaColonne * velocityCalibrata;
+        // Altezza minima visibile: le pressioni molto tenere ("piano") generano
+        // colonne di pochi millimetri, sotto la soglia di rimozione (0.005):
+        // la nota sembrava non apparire. Piccola ma sempre visibile finche' tenuta.
+        state.currentHeight = Mathf.Max(altezzaMassimaColonne * velocityCalibrata, 0.02f);
 
         ColoraColonna(state, velocityCalibrata);
 
