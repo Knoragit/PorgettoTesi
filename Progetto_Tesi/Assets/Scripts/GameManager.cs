@@ -45,6 +45,11 @@ public class GameManager : MonoBehaviour
     // esattamente 4 note in successione e sempre piu' forti per concludere.
     private int noteScalaCrescente = 0;
     private float tempoUltimaNotaScala = -1f;
+    // True mentre il bridge sta riproducendo l'esempio dimostrativo della sfida.
+    private bool esempioInCorso = false;
+    // Coroutine dell'esempio/sfida corrente del Tutorial: fermata se si abbandona
+    // o si riapre il tutorial (evita coroutine orfane che bloccano la rilevazione).
+    private Coroutine tutorialCoroutine = null;
 
     // Gestione Note per la modalità "Seguimi"
     private List<int> expectedNotes = new List<int>();
@@ -507,6 +512,22 @@ public class GameManager : MonoBehaviour
             udpReceiver.InviaComandoStopFaiTu();
         }
 
+        // Se si abbandona il tutorial, ferma la riproduzione dell'esempio e ogni
+        // coroutine pendente: mai coroutine orfane che bloccano la sfida.
+        if (statoAttuale == AppState.Tutorial && nuovoStato != AppState.Tutorial)
+        {
+            if (tutorialCoroutine != null)
+            {
+                StopCoroutine(tutorialCoroutine);
+                tutorialCoroutine = null;
+            }
+            if (esempioInCorso)
+            {
+                esempioInCorso = false;
+                if (udpReceiver != null) udpReceiver.InviaComandoStopEsempio();
+            }
+        }
+
         if (faiTuBannerCoroutine != null) StopCoroutine(faiTuBannerCoroutine);
         if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
 
@@ -583,7 +604,85 @@ public class GameManager : MonoBehaviour
         inTransizione = false;
 
         CambiaStato(AppState.Tutorial);
-        if (tutorialText != null) tutorialText.text = "SFIDA 1:\nPremi un tasto molto delicatamente (Suona 'Piano')";
+        if (tutorialCoroutine != null) StopCoroutine(tutorialCoroutine);
+        tutorialCoroutine = StartCoroutine(AvviaSfidaConEsempio(1, "SFIDA 1:\nPremi un tasto molto delicatamente (Suona 'Piano')"));
+    }
+
+    // Chiamato dal bridge quando termina la riproduzione dell'esempio.
+    public void EsempioCompletato()
+    {
+        esempioInCorso = false;
+    }
+
+    private static string TitoloSfida(int sfida)
+    {
+        switch (sfida)
+        {
+            case 2: return "Scala dinamica crescente";
+            case 3: return "Staccato";
+            case 4: return "Legato";
+            default: return "Suona piano";
+        }
+    }
+
+    // Ogni sfida mostra prima l'ESEMPIO (colonna + suono dal pianoforte, registrato
+    // dal bridge) e solo dopo invita l'utente a provare, come da descrizione.
+    private IEnumerator AvviaSfidaConEsempio(int sfida, string testoDescrizione)
+    {
+        inTransizione = true;
+        sfidaAttuale = sfida;
+        esempioInCorso = false;
+
+        try
+        {
+            if (tutorialText != null)
+            {
+                tutorialText.text = "SFIDA " + sfida + "\n" + TitoloSfida(sfida)
+                                    + "\n\nCome l'esempio che visualizzi";
+            }
+
+            yield return new WaitForSeconds(1.2f);
+
+            if (udpReceiver != null)
+            {
+                udpReceiver.InviaComandoEsempio(sfida);
+                esempioInCorso = true;
+            }
+
+            // Attende la fine dell'esempio. Timeout breve (3s) di sicurezza: se il
+            // bridge non conferma (non riavviato, o senza supporto esempi) si passa
+            // comunque alla prova dell'utente, mai un tutorial bloccato.
+            if (tutorialText != null) tutorialText.text = "Riproduco l'esempio...";
+            float timeout = Time.time + 3f;
+            while (esempioInCorso && Time.time < timeout)
+                yield return null;
+            if (esempioInCorso)
+            {
+                Debug.Log("[TUTORIAL] Esempio non confermato dal bridge: passo alla prova.");
+            }
+            esempioInCorso = false;
+
+            // Reset completo dello stato: la prova dell'utente parte da zero e i tasti
+            // dell'esempio non devono influenzare la rilevazione.
+            tastiTutorialPremuti.Clear();
+            primaNotaStaccato = -1;
+            noteScalaCrescente = 0;
+            tempoUltimaNotaScala = -1f;
+            tempoUltimoRilascio = -1f;
+            ultimaNotaMidi = -1;
+            ultimaVelocita = 0f;
+
+            inTransizione = false;
+            if (tutorialText != null) tutorialText.text = "Ora tocca a te";
+            yield return new WaitForSeconds(1.5f);
+
+            if (tutorialText != null) tutorialText.text = testoDescrizione;
+        }
+        finally
+        {
+            // inTransizione deve SEMPRE tornare false: nessun tutorial bloccabile.
+            inTransizione = false;
+        }
     }
 
     public void AttivaOsservatore() => CambiaStato(AppState.Osservatore);
@@ -852,17 +951,10 @@ public class GameManager : MonoBehaviour
 
         yield return new WaitForSeconds(2.5f);
 
-        sfidaAttuale = prossimaSfida;
-        tastiTutorialPremuti.Clear();
-        primaNotaStaccato = -1;
-        noteScalaCrescente = 0;
-        tempoUltimaNotaScala = -1f;
-        tempoUltimoRilascio = -1f;
-        ultimaNotaMidi = -1;
-        ultimaVelocita = 0f;
-
-        if (tutorialText != null) tutorialText.text = testoNuovaSfida;
-        inTransizione = false;
+        if (tutorialCoroutine != null) StopCoroutine(tutorialCoroutine);
+        tutorialCoroutine = StartCoroutine(AvviaSfidaConEsempio(prossimaSfida, testoNuovaSfida));
+        yield return tutorialCoroutine;
+        tutorialCoroutine = null;
     }
 
     private IEnumerator TransizioneErroreCoroutine(string messaggioErrore, string testoSfidaDaRipristinare)

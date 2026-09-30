@@ -31,6 +31,14 @@ DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop", "Nora")
 if not os.path.exists(DESKTOP_PATH):
     os.makedirs(DESKTOP_PATH)
 
+SESSIONI_PATH = os.path.join(DESKTOP_PATH, "Sessioni")
+if not os.path.exists(SESSIONI_PATH):
+    os.makedirs(SESSIONI_PATH)
+
+CANZONI_PATH = os.path.join(DESKTOP_PATH, "Canzoni")
+if not os.path.exists(CANZONI_PATH):
+    os.makedirs(CANZONI_PATH)
+
 # Numero massimo di risultati scaricati e salvati per ogni ricerca online
 MAX_RESULTS = 4
 
@@ -207,7 +215,7 @@ def download_freemidi_candidate(slug):
 
         if file_response.status_code == 200 and file_response.content[:4] == b'MThd':
             filename = slug.replace('download3-', '') + ".mid"
-            filepath = os.path.join(DESKTOP_PATH, filename)
+            filepath = os.path.join(CANZONI_PATH, filename)
             with open(filepath, 'wb') as f:
                 f.write(file_response.content)
             return filepath, filename, title, artist
@@ -260,7 +268,7 @@ def download_bitmidi_candidate(page_url):
             r = session.get(link, headers={**headers, 'Referer': page_url}, timeout=15)
             if r.status_code == 200 and r.content[:4] == b'MThd':
                 filename = hashlib.md5(page_url.encode()).hexdigest()[:10] + ".mid"
-                filepath = os.path.join(DESKTOP_PATH, filename)
+                filepath = os.path.join(CANZONI_PATH, filename)
                 with open(filepath, 'wb') as f:
                     f.write(r.content)
                 title = None
@@ -320,7 +328,7 @@ def handle_song_request(query):
     
     if row:
         filename, db_title, db_artist = row
-        filepath = os.path.join(DESKTOP_PATH, filename)
+        filepath = os.path.join(CANZONI_PATH, filename)
         if os.path.exists(filepath):
             print(f"[DATABASE LOCALE] Trovato in memoria: {filename}")
             send_to_unity({"action": "search_result", "status": "success", "filename": filename, "title": db_title, "artist": db_artist})
@@ -417,6 +425,7 @@ t_last_note_fai_tu = None
 
 is_playing_observing = False
 is_following = False
+is_playing_example = False
 current_song_filename = "N/A"
 follow_notes_sequence = []
 follow_current_index = 0
@@ -490,20 +499,20 @@ def get_filename_by_id(song_id):
     return row[0] if row else None
 
 def scan_local_folder():
-    """Registra nel DB locale tutti i file .mid già presenti nella cartella Nora."""
+    """Registra nel DB locale tutti i file .mid presenti nella cartella Canzoni."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    if not os.path.isdir(DESKTOP_PATH):
-        print(f"[SCAN CARTELLA] Cartella non trovata: {DESKTOP_PATH}")
+    if not os.path.isdir(CANZONI_PATH):
+        print(f"[SCAN CARTELLA] Cartella non trovata: {CANZONI_PATH}")
         conn.close()
         return 0
     aggiunti = 0
-    for nome_file in os.listdir(DESKTOP_PATH):
+    for nome_file in os.listdir(CANZONI_PATH):
         if not nome_file.lower().endswith(".mid"):
             continue
         info = parse_song_info(nome_file)
         query = nome_file.lower()
-        filepath = os.path.join(DESKTOP_PATH, nome_file)
+        filepath = os.path.join(CANZONI_PATH, nome_file)
         safe, motivo = is_midi_safe_for_visualizer(filepath)
         if not safe:
             print(f"[SCAN CARTELLA] Brano a rischio saltato ({motivo}): {nome_file}")
@@ -615,7 +624,7 @@ def generate_wav_from_midi_notes(notes_list, output_filepath, sample_rate=44100)
 def load_follow_sequence(filename):
     global follow_notes_sequence, follow_current_index, current_song_reference_notes, current_song_filename
     current_song_filename = filename
-    filepath = os.path.join(DESKTOP_PATH, filename)
+    filepath = os.path.join(CANZONI_PATH, filename)
     if not os.path.exists(filepath):
         print(f"[ERRORE] File MIDI non trovato: {filepath}")
         return
@@ -733,7 +742,7 @@ def play_observing_thread(filename):
         time.sleep(0.15)
 
     current_song_filename = filename
-    filepath = os.path.join(DESKTOP_PATH, filename)
+    filepath = os.path.join(CANZONI_PATH, filename)
     if not os.path.exists(filepath):
         print(f"[ERRORE AUDIO] File non trovato: {filepath}")
         return
@@ -780,6 +789,86 @@ def play_observing_thread(filename):
                 outport.send(mido.Message('control_change', channel=ch, control=123, value=0))
         send_to_unity({"action": "clear_scene"})
         print(f"[PLAYING] Terminato o interrotto: {filename}")
+
+# ==========================================
+# ESEMPI TUTORIAL (riproduzione dimostrativa)
+# ==========================================
+# Ogni sfida mostra prima COME si esegue: le note partono sempre dal Do centrale
+# (MIDI 60). Gli esempi vengono inviati sia al piano (suono) sia a Unity (colonne).
+def play_tutorial_example(sfida):
+    global is_playing_example
+    if is_playing_observing or is_following:
+        is_playing_example = False
+        print("[ESEMPIO] Saltato (osservatore/seguimi attivi): avanzo comunque.")
+        send_to_unity({"action": "example_done"})
+        return
+
+    if sfida == 4:
+        # Legato (Do -> Mi): il Mi parte mentre il Do e' ancora tenuto, con
+        # due attacchi ben distinti nel tempo ("prima uno, poi l'altro").
+        is_playing_example = True
+        print(f"[ESEMPIO] Riproduzione esempio sfida {sfida}")
+        try:
+            if outport:
+                outport.send(mido.Message('note_on', note=60, velocity=64))
+            send_to_unity({"note": 60, "velocity": 0.5, "action": "press"})
+            time.sleep(0.60)
+            if outport:
+                outport.send(mido.Message('note_on', note=64, velocity=64))
+            send_to_unity({"note": 64, "velocity": 0.5, "action": "press"})
+            time.sleep(0.85)
+            for nota in (64, 60):
+                if outport:
+                    outport.send(mido.Message('note_off', note=nota))
+                send_to_unity({"note": nota, "velocity": 0.5, "action": "release"})
+                time.sleep(0.10)
+        except Exception as e:
+            print(f"[ERRORE ESEMPIO] {e}")
+        finally:
+            is_playing_example = False
+            send_to_unity({"action": "clear_scene"})
+            send_to_unity({"action": "example_done"})
+            print("[ESEMPIO] Terminato")
+        return
+
+    # (nota, velocity, durata_sec, pausa_sec)
+    if sfida == 1:
+        sequenza = [(60, 0.18, 1.20, 0.10)]                       # Do centrale, tocco piano
+    elif sfida == 2:
+        sequenza = [(60, 0.25, 0.35, 0.40),                        # Do -> Re -> Mi -> Fa
+                    (62, 0.35, 0.35, 0.40),
+                    (64, 0.45, 0.35, 0.40),
+                    (65, 0.55, 0.35, 0.10)]
+    elif sfida == 3:
+        # Staccato: Do, pausa ampia, Re (ben separati, niente effetto legato)
+        sequenza = [(60, 0.50, 0.18, 0.40),
+                    (62, 0.50, 0.15, 0.10)]
+    else:
+        is_playing_example = False
+        return
+
+    is_playing_example = True
+    print(f"[ESEMPIO] Riproduzione esempio sfida {sfida}")
+
+    try:
+        for nota, vel, durata, pausa in sequenza:
+            if not is_playing_example:
+                break
+            if outport:
+                outport.send(mido.Message('note_on', note=nota, velocity=int(vel * 127)))
+            send_to_unity({"note": nota, "velocity": vel, "action": "press"})
+            time.sleep(durata)
+            if outport:
+                outport.send(mido.Message('note_off', note=nota))
+            send_to_unity({"note": nota, "velocity": vel, "action": "release"})
+            time.sleep(pausa)
+    except Exception as e:
+        print(f"[ERRORE ESEMPIO] {e}")
+    finally:
+        is_playing_example = False
+        send_to_unity({"action": "clear_scene"})
+        send_to_unity({"action": "example_done"})
+        print("[ESEMPIO] Terminato")
 
 # ==========================================
 # GENERAZIONE REPORT PDF
@@ -944,7 +1033,7 @@ def generate_unified_report():
     last_report_time = now
 
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-    session_dir = os.path.join(DESKTOP_PATH, f"Sessione_{timestamp_str}")
+    session_dir = os.path.join(SESSIONI_PATH, f"Sessione_{timestamp_str}")
     os.makedirs(session_dir, exist_ok=True)
 
     pdf_filepath = os.path.join(session_dir, "Report_Completo_Nora.pdf")
@@ -1281,10 +1370,15 @@ def generate_unified_report():
 # LISTENER UDP COMANDI DA UNITY
 # ==========================================
 def udp_command_listener():
-    global is_following, is_playing_observing, is_recording_fai_tu
+    global is_following, is_playing_observing, is_recording_fai_tu, is_playing_example
     
     sock_recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_recv.bind((UDP_IP, PORT_FROM_UNITY))
+    try:
+        sock_recv.bind((UDP_IP, PORT_FROM_UNITY))
+    except OSError as e:
+        print(f"[ERRORE FATALE] Porta {PORT_FROM_UNITY} gia' in uso: chiudi il bridge Python precedente e riavvia questo.")
+        print(f"[DETTAGLIO] {e}")
+        return
     print(f"[UDP LISTENER] Avviato ed in ascolto sulla porta {PORT_FROM_UNITY}...")
 
     while True:
@@ -1356,6 +1450,13 @@ def udp_command_listener():
                 is_following = False
                 send_to_unity({"action": "clear_scene"})
 
+            elif action == "play_example":
+                sfida = cmd.get("sfida", 1)
+                threading.Thread(target=play_tutorial_example, args=(sfida,), daemon=True).start()
+
+            elif action == "stop_example":
+                is_playing_example = False
+
             elif action == "start_fai_tu":
                 is_recording_fai_tu = True
                 recorded_notes_fai_tu.clear()
@@ -1389,6 +1490,7 @@ def udp_command_listener():
 # MAIN ENTRY POINT
 # ==========================================
 if __name__ == "__main__":
+    print("[NORA BRIDGE v2 - esempi tutorial attivi]")
     scan_local_folder()
 
     t_midi = threading.Thread(target=midi_input_loop, daemon=True)

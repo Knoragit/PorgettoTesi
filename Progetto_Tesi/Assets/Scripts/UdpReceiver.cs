@@ -236,6 +236,10 @@ public class UdpReceiver : MonoBehaviour
                                 songListManager.PlayResultRicevuta(json.status, json.message);
                             }
                         }
+                        else if (json.action == "example_done")
+                        {
+                            if (gameManager != null) gameManager.EsempioCompletato();
+                        }
                         else
                         {
                             // Qui entreranno solo "press" e "release"
@@ -261,6 +265,20 @@ public class UdpReceiver : MonoBehaviour
     public void InviaComandoSuggerimento(string query)
     {
         string json = "{\"action\":\"search_suggest\", \"query\":" + QueryComeStringaJson(query) + "}";
+        InviaJsonAPython(json);
+    }
+
+    // Esempio dimostrativo del tutorial: il bridge riproduce la sfida indicata
+    // (suono dal pianoforte + colonne) e poi invia "example_done".
+    public void InviaComandoEsempio(int sfida)
+    {
+        string json = "{\"action\":\"play_example\", \"sfida\":" + sfida + "}";
+        InviaJsonAPython(json);
+    }
+
+    public void InviaComandoStopEsempio()
+    {
+        string json = "{\"action\":\"stop_example\"}";
         InviaJsonAPython(json);
     }
 
