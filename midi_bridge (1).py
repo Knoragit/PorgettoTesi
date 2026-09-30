@@ -675,7 +675,7 @@ def load_follow_sequence(filename):
 def send_next_follow_step():
     global follow_current_index, is_following
     if follow_current_index < len(follow_notes_sequence):
-        chord_notes = follow_notes_sequence[follow_current_index]
+        chord_notes = list(dict.fromkeys(follow_notes_sequence[follow_current_index]))
         send_to_unity({"action": "expect_notes", "notes": chord_notes})
         follow_current_index += 1
     else:

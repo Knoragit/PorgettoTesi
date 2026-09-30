@@ -27,6 +27,10 @@ public class PianoVisualizer : MonoBehaviour
     private readonly int[] whiteKeyOffsets = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
 
     private Dictionary<int, GameObject> expectedVisualObjects = new Dictionary<int, GameObject>();
+    // Tutte le guide visive create (anche quelle "orfane" quando lo stesso MIDI
+    // compare due volte in un accordo): PulisciNoteAtteseVisive distrugge l'intera
+    // lista, cosi' nessuna colonna verde puo' restare dopo la pulizia.
+    private readonly List<GameObject> expectedVisualList = new List<GameObject>();
 
     [Header("Riferimenti Tracciamento Mani Meta")]
     public Transform leftHandTransform;
@@ -202,15 +206,17 @@ public class PianoVisualizer : MonoBehaviour
             CreaEtichettaTesto(radiceGuida, ConvertiMidiInNomeNota(note), Color.green);
 
             expectedVisualObjects[note] = radiceGuida;
+            expectedVisualList.Add(radiceGuida);
         }
     }
 
     public void PulisciNoteAtteseVisive()
     {
-        foreach (var go in expectedVisualObjects.Values)
+        foreach (var go in expectedVisualList)
         {
             if (go != null) Destroy(go);
         }
+        expectedVisualList.Clear();
         expectedVisualObjects.Clear();
     }
 
