@@ -1004,6 +1004,11 @@ public class SongListManager : MonoBehaviour
         IndietroFeedback feedback = cerchioGO.AddComponent<IndietroFeedback>();
         feedback.ImpostaColori(GameManager.CoolSteel, GameManager.SteelBlue);
         feedback.ImpostaColorePremuto(GameManager.SteelBlue);
+        // Il "+" e' visibile solo da chiuso e fermo, quindi puo' ingrandirsi
+        // all'hover senza interferire con l'animazione di apertura/chiusura.
+        feedback.fattoreHover = 1.12f;
+        feedback.fattorePremuto = 1.06f;
+        GlowBottone.Applica(cerchioGO, GlowBottone.FormaGlow.Circolare);
 
         GameObject labelGO = CrearGOFiglio(cerchioGO.transform, "Testo");
         RectTransform rtLabel = (RectTransform)labelGO.transform;
@@ -1555,6 +1560,7 @@ public class SongListManager : MonoBehaviour
 
             // Feedback visivo: ingrandisce e cambia colore al passaggio/pressione.
             te.AddComponent<KeyFeedback>();
+            GlowBottone.Applica(te);
 
             GameObject labGO = CrearGOFiglio(te.transform, "Label");
             RectTransform rtLab = (RectTransform)labGO.transform;

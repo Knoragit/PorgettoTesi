@@ -17,10 +17,9 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     public Color coloreEtichettaHover = Color.black;
     public Color coloreEtichettaPremuto = Color.black;
 
-    // Ingrossamento all'hover/premuto: 0 = disattivato (default). Lo si attiva solo
-    // sui pulsanti "singoli" (Indietro, Cerca): le righe canzone non si ingrandiscono
-    // per non sovrapporsi ai vicini durante lo scroll, e il "+" è animato a scala
-    // dalle transizioni di apertura/chiusura del gruppo.
+    // Ingrossamento all'hover/premuto: 0 = disattivato (default). Lo si attiva sui
+    // pulsanti "singoli" (menu, Indietro, Cerca, "+", tasti tastiera); le righe
+    // canzone restano a 0 per non sovrapporsi ai vicini durante lo scroll.
     public float fattoreHover = 0f;
     public float fattorePremuto = 0f;
 
@@ -31,6 +30,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     private Color colorePremuto;
     private bool colorePremutoImpostato = false;
     private bool coloreHoverImpostato = false;
+    private bool coloreBaseImpostato = false;
     private bool premuto = false;
     private Vector3 scalaBase = Vector3.one;
 
@@ -48,7 +48,10 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
             if (!coloreHoverImpostato) coloreHover = btn.colors.highlightedColor;
             btn.transition = Selectable.Transition.None;
         }
-        if (img != null) coloreBase = img.color;
+        // Se ImpostaColori ha gia' deciso il colore di riposo, non lo sovrascrivere
+        // col valore temporaneo dell'Image (spesso bianco durante la costruzione).
+        if (img != null && !coloreBaseImpostato) coloreBase = img.color;
+        if (img != null) img.color = coloreBase;
         if (!colorePremutoImpostato) colorePremuto = coloreHover;
         if (etichetta == null) etichetta = GetComponentInChildren<TextMeshProUGUI>(true);
     }
@@ -58,6 +61,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     public void ImpostaColori(Color baseC, Color hoverC)
     {
         coloreBase = baseC;
+        coloreBaseImpostato = true;
         coloreHover = hoverC;
         coloreHoverImpostato = true;
         colorePremuto = hoverC;

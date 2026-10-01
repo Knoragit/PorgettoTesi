@@ -396,7 +396,7 @@ public class GameManager : MonoBehaviour
         if (target == null) return;
 
         Image img = target.GetComponent<Image>();
-        if (img != null) img.color = Color.white;
+        if (img != null) img.color = baseC;
 
         Button btn = target.GetComponent<Button>();
         if (btn != null)
@@ -409,12 +409,25 @@ public class GameManager : MonoBehaviour
             c.disabledColor = baseC;
             c.colorMultiplier = 1f;
             btn.colors = c;
+            // Colore e scala sono gestiti a mano da IndietroFeedback: evitiamo che
+            // la ColorTint lasci l'highlight "appeso" e che colori il bottone per
+            // un frame quando la transizione verra' disattivata.
+            btn.transition = Selectable.Transition.None;
         }
+
+        // Hover manuale (scala + colore) come su Indietro/Cerca.
+        IndietroFeedback fb = target.GetComponent<IndietroFeedback>();
+        if (fb == null) fb = target.gameObject.AddComponent<IndietroFeedback>();
+        fb.ImpostaColori(baseC, hoverC);
+        fb.ImpostaColorePremuto(pressedC);
+        fb.fattoreHover = 1.12f;
+        fb.fattorePremuto = 1.06f;
 
         TextMeshProUGUI label = target.GetComponentInChildren<TextMeshProUGUI>(true);
         if (label != null) label.color = testo;
 
         ApplicaPenombra(target.gameObject);
+        GlowBottone.Applica(target.gameObject);
     }
 
     private static void StileIndietro(Transform target)
@@ -445,6 +458,7 @@ public class GameManager : MonoBehaviour
         if (label != null) label.color = Color.black;
 
         ApplicaPenombra(target.gameObject);
+        GlowBottone.Applica(target.gameObject);
     }
 
     private static void ColoraPannelli(GameObject gruppo)
