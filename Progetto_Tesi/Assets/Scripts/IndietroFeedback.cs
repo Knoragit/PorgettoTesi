@@ -17,6 +17,13 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     public Color coloreEtichettaHover = Color.black;
     public Color coloreEtichettaPremuto = Color.black;
 
+    // Ingrossamento all'hover/premuto: 0 = disattivato (default). Lo si attiva solo
+    // sui pulsanti "singoli" (Indietro, Cerca): le righe canzone non si ingrandiscono
+    // per non sovrapporsi ai vicini durante lo scroll, e il "+" è animato a scala
+    // dalle transizioni di apertura/chiusura del gruppo.
+    public float fattoreHover = 0f;
+    public float fattorePremuto = 0f;
+
     private Image img;
     private Button btn;
     private Color coloreBase;
@@ -25,6 +32,12 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     private bool colorePremutoImpostato = false;
     private bool coloreHoverImpostato = false;
     private bool premuto = false;
+    private Vector3 scalaBase = Vector3.one;
+
+    void Awake()
+    {
+        scalaBase = transform.localScale;
+    }
 
     void Start()
     {
@@ -86,6 +99,7 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
         premuto = true;
         if (img != null) img.color = colorePremuto;
         if (cambiaColoreEtichetta && etichetta != null) etichetta.color = coloreEtichettaPremuto;
+        if (fattorePremuto > 0f) transform.localScale = scalaBase * fattorePremuto;
     }
 
     public void OnPointerUp(PointerEventData e)
@@ -98,12 +112,16 @@ public class IndietroFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExi
     {
         premuto = false;
         if (img != null) img.color = coloreBase;
+        // La scala si ripristina solo se questo bottone la gestisce: il "+" e' animato
+        // a scala dalle transizioni del gruppo e non va toccato qui.
+        if (fattoreHover > 0f || fattorePremuto > 0f) transform.localScale = scalaBase;
         ApplicaEtichetta(false);
     }
 
     private void Applica(Color colore)
     {
         if (img != null) img.color = colore;
+        if (fattoreHover > 0f) transform.localScale = scalaBase * fattoreHover;
         ApplicaEtichetta(true);
     }
 

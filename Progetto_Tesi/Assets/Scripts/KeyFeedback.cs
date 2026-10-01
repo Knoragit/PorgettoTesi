@@ -14,16 +14,19 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     private Vector3 scalaBase = Vector3.one;
     private bool premuto = false;
 
-    private static readonly Color ColoreBase = new Color(0.2745f, 0.2863f, 0.2980f, 1f);   // #46494c Iron Grey
-    private static readonly Color ColoreHover = new Color(0.0980f, 0.5216f, 0.6314f, 1f);    // #1985a1 Pacific Cyan
-    private static readonly Color ColorePremuto = new Color(0.2980f, 0.3608f, 0.4078f, 1f);  // #4c5c68 Blue Slate
+    private static readonly Color ColoreBase = new Color(0.6046f, 0.6784f, 0.7490f, 1f);   // #9aadbf Cool Steel
+    private static readonly Color ColoreHover = new Color(0.4275f, 0.5961f, 0.7294f, 1f);   // #6d98ba Steel Blue
+    private static readonly Color ColorePremuto = new Color(0.4275f, 0.5961f, 0.7294f, 1f);  // #6d98ba Steel Blue
+
+    private const float FattoreHover = 1.18f;    // ingrandimento al passaggio del raggio
+    private const float FattorePremuto = 1.08f;
 
     void Awake()
     {
         img = GetComponent<Image>();
         etichetta = GetComponentInChildren<TextMeshProUGUI>(true);
         scalaBase = transform.localScale;
-        Applica(1f, ColoreBase, false);
+        Applica(1f, ColoreBase, true);
     }
 
     void OnEnable()
@@ -38,7 +41,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
 
     public void OnPointerEnter(PointerEventData e)
     {
-        if (!premuto) Applica(1.14f, ColoreHover, true);
+        if (!premuto) Applica(FattoreHover, ColoreHover, false);
     }
 
     public void OnPointerExit(PointerEventData e)
@@ -49,7 +52,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     public void OnPointerDown(PointerEventData e)
     {
         premuto = true;
-        Applica(1.06f, ColorePremuto, false);
+        Applica(FattorePremuto, ColorePremuto, false);
     }
 
     public void OnPointerUp(PointerEventData e)

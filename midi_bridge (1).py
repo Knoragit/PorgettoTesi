@@ -1380,6 +1380,9 @@ def udp_command_listener():
         print(f"[DETTAGLIO] {e}")
         return
     print(f"[UDP LISTENER] Avviato ed in ascolto sulla porta {PORT_FROM_UNITY}...")
+    # handshake: Unity aspetta questo segnale prima di inviare play_example, altrimenti
+    # il comando verrebbe spedito quando la porta non e' ancora in ascolto e andrebbe perso
+    send_to_unity({"action": "bridge_ready"})
 
     while True:
         try:
@@ -1393,6 +1396,13 @@ def udp_command_listener():
                 mano = cmd.get("hand")
                 if nota is not None and mano in ("left", "right"):
                     fai_tu_nota_mano[int(nota)] = mano
+                continue
+
+            # heartbeat di Unity: serve a confermare che il ponte e' vivo e pronto,
+            # anche se e' gia' partito prima di Unity (il bridge_ready iniziale
+            # sarebbe stato perso). Risponde sempre, finche' il listener e' attivo.
+            if action == "ping":
+                send_to_unity({"action": "bridge_ready"})
                 continue
 
             if action == "play_song":

@@ -16,6 +16,7 @@ public class SongListManager : MonoBehaviour
     private TMP_FontAsset fontAsset;
     private Sprite bottoneSpr;
     private Sprite campoSpr;
+    private Sprite pannelloSpr;
 
     private GameObject barraObserver;
     private GameObject barraSeguimi;
@@ -86,8 +87,12 @@ public class SongListManager : MonoBehaviour
         Sprite arrotondato = GameManager.SpriteArrotondato != null
             ? GameManager.SpriteArrotondato
             : CreaSpriteBianco();
+        // bottoneSpr = pannelloSpr = solita forma arrotondata di prima (quella dei
+        // bottoni statici menu/FaiTu). Sono due campi distinti solo per ricordare
+        // che i pulsanti usano bottoneSpr e gli sfondi pannelloSpr.
         bottoneSpr = arrotondato;
         campoSpr = arrotondato;
+        pannelloSpr = arrotondato;
 
         NascondiBottoniStatici(contenitoreObserver);
         NascondiBottoniStatici(contenitoreSeguimi);
@@ -963,8 +968,8 @@ public class SongListManager : MonoBehaviour
         }
     }
 
-    // Bottone circolare "+" a destra del bottone Indietro (colori identici al
-    // "Torna al Menù": Alabaster, hover Pacific Cyan, pressione Iron Grey).
+    // Bottone circolare "+" a destra del bottone Indietro (colori legati alla
+    // palette: Cool Steel base, Steel Blue hover/pressione).
     private GameObject CreaCerchioPlus(RectTransform contenitore)
     {
         if (contenitore == null) return null;
@@ -990,14 +995,15 @@ public class SongListManager : MonoBehaviour
         Image img = cerchioGO.AddComponent<Image>();
         img.sprite = SpriteCerchio;
         img.type = Image.Type.Simple;
-        img.color = GameManager.AlabasterGrey;
+        img.color = GameManager.CoolSteel;
+        GameManager.ApplicaPenombra(cerchioGO, 0.30f, 3f);
 
         Button btn = cerchioGO.AddComponent<Button>();
         btn.targetGraphic = img;
 
         IndietroFeedback feedback = cerchioGO.AddComponent<IndietroFeedback>();
-        feedback.ImpostaColori(GameManager.AlabasterGrey, GameManager.PacificCyan);
-        feedback.ImpostaColorePremuto(GameManager.IronGrey);
+        feedback.ImpostaColori(GameManager.CoolSteel, GameManager.SteelBlue);
+        feedback.ImpostaColorePremuto(GameManager.SteelBlue);
 
         GameObject labelGO = CrearGOFiglio(cerchioGO.transform, "Testo");
         RectTransform rtLabel = (RectTransform)labelGO.transform;
@@ -1140,10 +1146,10 @@ public class SongListManager : MonoBehaviour
         RectMask2D mask = vpGO.AddComponent<RectMask2D>();
 
         Image sfondoVp = vpGO.AddComponent<Image>();
-        sfondoVp.sprite = bottoneSpr;
+        sfondoVp.sprite = pannelloSpr;
         sfondoVp.type = Image.Type.Sliced;
         sfondoVp.raycastTarget = false;
-        sfondoVp.color = new Color(GameManager.BlueSlate.r, GameManager.BlueSlate.g, GameManager.BlueSlate.b, 0.55f);
+        sfondoVp.color = new Color(GameManager.CoolSteel.r, GameManager.CoolSteel.g, GameManager.CoolSteel.b, 0.55f);
 
         GameObject sbGO = CrearGOFiglio(scrollGO.transform, "Scrollbar");
         RectTransform rtSb = (RectTransform)sbGO.transform;
@@ -1154,9 +1160,9 @@ public class SongListManager : MonoBehaviour
         rtSb.sizeDelta = new Vector2(SB_LANE, 0f);
 
         Image bgImg = sbGO.AddComponent<Image>();
-        bgImg.sprite = bottoneSpr;
+        bgImg.sprite = pannelloSpr;
         bgImg.type = Image.Type.Sliced;
-        bgImg.color = new Color(GameManager.BlueSlate.r, GameManager.BlueSlate.g, GameManager.BlueSlate.b, 0.30f);
+        bgImg.color = new Color(GameManager.CoolSteel.r, GameManager.CoolSteel.g, GameManager.CoolSteel.b, 0.30f);
         bgImg.raycastPadding = Vector4.zero;
 
         GameObject handleGO = CrearGOFiglio(sbGO.transform, "Handle");
@@ -1168,10 +1174,10 @@ public class SongListManager : MonoBehaviour
         rtHandle.sizeDelta = new Vector2(SB_WIDTH, 0f);
 
         Image handleImg = handleGO.AddComponent<Image>();
-        handleImg.sprite = bottoneSpr;
+        handleImg.sprite = pannelloSpr;
         handleImg.type = Image.Type.Sliced;
         handleImg.pixelsPerUnitMultiplier = 4f;
-        handleImg.color = GameManager.IronGrey;
+        handleImg.color = GameManager.CoolSteel;
         handleImg.raycastTarget = false;
 
         ScrollbarVisuale sbVisuale = sbGO.AddComponent<ScrollbarVisuale>();
@@ -1245,14 +1251,15 @@ public class SongListManager : MonoBehaviour
         cercaImg.sprite = bottoneSpr;
         cercaImg.type = Image.Type.Sliced;
         cercaImg.color = Color.white;
+        GameManager.ApplicaPenombra(cercaGO, 0.30f, 3f);
 
         Button cercaBtn = cercaGO.AddComponent<Button>();
         cercaBtn.targetGraphic = cercaImg;
         ColorBlock coloriCerca = cercaBtn.colors;
-        coloriCerca.normalColor = GameManager.IronGrey;
-        coloriCerca.highlightedColor = GameManager.PacificCyan;
-        coloriCerca.pressedColor = GameManager.BlueSlate;
-        coloriCerca.selectedColor = GameManager.PacificCyan;
+        coloriCerca.normalColor = GameManager.TanColor;
+        coloriCerca.highlightedColor = GameManager.SteelBlue;
+        coloriCerca.pressedColor = GameManager.SteelBlue;
+        coloriCerca.selectedColor = GameManager.SteelBlue;
         coloriCerca.colorMultiplier = 1f;
         cercaBtn.colors = coloriCerca;
 
@@ -1266,21 +1273,23 @@ public class SongListManager : MonoBehaviour
         cercaLabel.text = "Cerca";
         cercaLabel.font = fontAsset;
         cercaLabel.fontSize = 18;
-        cercaLabel.color = Color.white;
+        cercaLabel.color = Color.black;
         cercaLabel.alignment = TextAlignmentOptions.Center;
         cercaLabel.raycastTarget = false;
         GameManager.ApplicaStileTesto(cercaLabel);
 
-        // Etichetta a tre stati (bianca su Iron/BlueSlate, nera su hover cyan):
+        // Etichetta a tre stati (nera su Tan, bianca su Steel Blue premuto/hover):
         // stesso feedback manuale usato dalle righe canzone.
         IndietroFeedback feedbackCerca = cercaGO.AddComponent<IndietroFeedback>();
         feedbackCerca.etichetta = cercaLabel;
         feedbackCerca.cambiaColoreEtichetta = true;
-        feedbackCerca.coloreEtichettaBase = Color.white;
-        feedbackCerca.coloreEtichettaHover = Color.black;
+        feedbackCerca.coloreEtichettaBase = Color.black;
+        feedbackCerca.coloreEtichettaHover = Color.white;
         feedbackCerca.coloreEtichettaPremuto = Color.white;
-        feedbackCerca.ImpostaColori(GameManager.IronGrey, GameManager.PacificCyan);
-        feedbackCerca.ImpostaColorePremuto(GameManager.BlueSlate);
+        feedbackCerca.ImpostaColori(GameManager.TanColor, GameManager.SteelBlue);
+        feedbackCerca.ImpostaColorePremuto(GameManager.SteelBlue);
+        feedbackCerca.fattoreHover = 1.12f;
+        feedbackCerca.fattorePremuto = 1.06f;
 
         // Tastiera virtuale: in editor+Link TMP non puo' aprire la tastiera di sistema
         // della Quest, quindi digitiamo qui dentro. Diventa un figlio del contenitore
@@ -1448,9 +1457,9 @@ public class SongListManager : MonoBehaviour
         le.preferredHeight = 306f;
 
         Image sfondo = tastiera.AddComponent<Image>();
-        sfondo.sprite = bottoneSpr;
+        sfondo.sprite = pannelloSpr;
         sfondo.type = Image.Type.Sliced;
-        sfondo.color = new Color(GameManager.BlueSlate.r, GameManager.BlueSlate.g, GameManager.BlueSlate.b, 0.35f);
+        sfondo.color = new Color(GameManager.CoolSteel.r, GameManager.CoolSteel.g, GameManager.CoolSteel.b, 0.35f);
 
         VerticalLayoutGroup vlg = tastiera.AddComponent<VerticalLayoutGroup>();
         vlg.padding = new RectOffset(4, 4, 4, 4);
@@ -1470,9 +1479,9 @@ public class SongListManager : MonoBehaviour
         readGO.AddComponent<RectMask2D>();
 
         Image readImg = readGO.AddComponent<Image>();
-        readImg.sprite = bottoneSpr;
+        readImg.sprite = pannelloSpr;
         readImg.type = Image.Type.Sliced;
-        readImg.color = new Color(GameManager.BlueSlate.r, GameManager.BlueSlate.g, GameManager.BlueSlate.b, 0.35f);
+        readImg.color = new Color(GameManager.CoolSteel.r, GameManager.CoolSteel.g, GameManager.CoolSteel.b, 0.35f);
 
         GameObject readLabelGO = CrearGOFiglio(readGO.transform, "Testo");
         RectTransform rtReadLabel = (RectTransform)readLabelGO.transform;
@@ -1537,7 +1546,8 @@ public class SongListManager : MonoBehaviour
             img.sprite = bottoneSpr;
             img.type = Image.Type.Sliced;
             img.pixelsPerUnitMultiplier = 8f;
-            img.color = GameManager.IronGrey;
+            img.color = GameManager.CoolSteel;
+            GameManager.ApplicaPenombra(te, 0.30f, 3f);
 
             Button btn = te.AddComponent<Button>();
             btn.targetGraphic = img;
@@ -1559,7 +1569,7 @@ public class SongListManager : MonoBehaviour
             lab.fontSizeMin = 12f;
             lab.fontSizeMax = 20f;
             lab.enableAutoSizing = true;
-            lab.color = Color.white;
+            lab.color = Color.black;
             lab.alignment = TextAlignmentOptions.Center;
             lab.enableWordWrapping = false;
             lab.overflowMode = TextOverflowModes.Overflow;
@@ -1645,13 +1655,14 @@ public class SongListManager : MonoBehaviour
         Image img = bottoneGO.AddComponent<Image>();
         img.sprite = bottoneSpr;
         img.type = Image.Type.Sliced;
-        img.color = GameManager.IronGrey;
+        img.color = GameManager.CoolSteel;
+        GameManager.ApplicaPenombra(bottoneGO, 0.30f, 3f);
 
         Button btn = bottoneGO.AddComponent<Button>();
         btn.targetGraphic = img;
         ColorBlock colori = btn.colors;
-        colori.highlightedColor = new Color(GameManager.PacificCyan.r, GameManager.PacificCyan.g, GameManager.PacificCyan.b, 0.55f);
-        colori.pressedColor = GameManager.BlueSlate;
+        colori.highlightedColor = GameManager.SteelBlue;
+        colori.pressedColor = GameManager.SteelBlue;
         btn.colors = colori;
 
         // Hover manuale (niente ColorTint): evita che lo scroll illumini tutte le canzoni.
@@ -1666,7 +1677,7 @@ public class SongListManager : MonoBehaviour
         TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
         label.font = fontAsset;
         label.fontSize = 16;
-        label.color = Color.white;
+        label.color = Color.black;
         label.alignment = TextAlignmentOptions.Left;
         label.enableWordWrapping = false;
         label.raycastTarget = false;
@@ -1674,10 +1685,10 @@ public class SongListManager : MonoBehaviour
 
         feedbackBrano.etichetta = label;
         feedbackBrano.cambiaColoreEtichetta = true;
-        feedbackBrano.coloreEtichettaBase = Color.white;
-        feedbackBrano.coloreEtichettaHover = Color.white;
+        feedbackBrano.coloreEtichettaBase = Color.black;
+        feedbackBrano.coloreEtichettaHover = Color.black;
         feedbackBrano.coloreEtichettaPremuto = Color.white;
-        feedbackBrano.ImpostaColorePremuto(GameManager.BlueSlate);
+        feedbackBrano.ImpostaColorePremuto(GameManager.SteelBlue);
 
         BranoDinamicoUI dinamico = bottoneGO.AddComponent<BranoDinamicoUI>();
         dinamico.ImpostaBrano(titolo, autore, id, nuovoRisultato);

@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics; // Necessario per avviare/chiudere processi esterni
 
@@ -27,6 +28,15 @@ public class UdpReceiver : MonoBehaviour
 
     private Process pythonProcess;
 
+    // True quando il bridge ha confermato di essere in ascolto ("bridge_ready").
+    // Prima di questo segnale i comandi inviati vengono scartati dal sistema:
+    // per questo il tutorial aspetta la tastiera prima di chiedere l'esempio.
+    private bool bridgePronto = false;
+    private int pingNonRisposti = 0;
+    private bool avvisoComandoPrimaProntoInviato = false;
+
+    public bool BridgePronto => bridgePronto;
+
     void Awake()
     {
         AvviaScriptPython();
@@ -47,6 +57,44 @@ public class UdpReceiver : MonoBehaviour
             IsBackground = true
         };
         receiveThread.Start();
+
+        StartCoroutine(HeartbeatBridge());
+    }
+
+    // Heartbeat: finche' il bridge non si dichiara pronto si interroga ogni secondo
+    // (il primo avvio richiede che finisca la scansione dei brani e l'init MIDI),
+    // poi ogni 5s come keep-alive. Se smette di rispondere, BridgePronto torna
+    // false e i comandi non vengono piu' dati per eseguiti.
+    private IEnumerator HeartbeatBridge()
+    {
+        while (true)
+        {
+            InviaPing();
+            yield return new WaitForSeconds(bridgePronto ? 5f : 1f);
+
+            // Nessun "bridge_ready" nell'intervallo: il bridge non sta rispondendo.
+            if (bridgePronto)
+            {
+                pingNonRisposti++;
+                if (pingNonRisposti >= 3)
+                {
+                    bridgePronto = false;
+                    pingNonRisposti = 0;
+                    UnityEngine.Debug.LogWarning("[BRIDGE] Ponte non risponde: il bridge e' stato chiuso o non e' in ascolto. I comandi inviati ora verranno persi.");
+                }
+            }
+        }
+    }
+
+    private void RiceviBridgeReady()
+    {
+        if (!bridgePronto)
+        {
+            UnityEngine.Debug.Log("<color=green>[BRIDGE]</color> Ponte pronto: tastiera collegata, i comandi vengono ricevuti.");
+        }
+        bridgePronto = true;
+        pingNonRisposti = 0;
+        avvisoComandoPrimaProntoInviato = false;
     }
 
     private void AvviaScriptPython()
@@ -209,7 +257,14 @@ public class UdpReceiver : MonoBehaviour
                         }
                         else if (json.action == "clear_scene")
                         {
-                            if (visualizer != null)
+                            // Il GameManager decide: durante l'esempio del tutorial il
+                            // reset e' differito, altrimenti la colonna dell'esempio
+                            // verrebbe distrutta nello stesso frame in cui nasce.
+                            if (gameManager != null)
+                            {
+                                gameManager.NotificaClearScene();
+                            }
+                            else if (visualizer != null)
                             {
                                 visualizer.ResetVisualizer();
                                 visualizer.PulisciNoteAtteseVisive();
@@ -239,6 +294,12 @@ public class UdpReceiver : MonoBehaviour
                         else if (json.action == "example_done")
                         {
                             if (gameManager != null) gameManager.EsempioCompletato();
+                        }
+                        else if (json.action == "bridge_ready")
+                        {
+                            // PRIMA del fallback "press/release": questo messaggio non
+                            // e' una nota e non deve generare nessuna colonna.
+                            RiceviBridgeReady();
                         }
                         else
                         {
@@ -279,6 +340,13 @@ public class UdpReceiver : MonoBehaviour
     public void InviaComandoStopEsempio()
     {
         string json = "{\"action\":\"stop_example\"}";
+        InviaJsonAPython(json);
+    }
+
+    // Heartbeat verso il bridge: chiede solo se e' vivo e in ascolto.
+    public void InviaPing()
+    {
+        string json = "{\"action\":\"ping\"}";
         InviaJsonAPython(json);
     }
 
@@ -375,6 +443,15 @@ public class UdpReceiver : MonoBehaviour
     {
         try
         {
+            // Diagnostica: un comando spedito prima che il bridge sia in ascolto
+            // viene scartato dal sistema senza alcun errore. Lo segniamo una volta
+            // sola per non ripetere il messaggio a ogni ping.
+            if (!bridgePronto && !jsonComando.Contains("\"ping\"") && !avvisoComandoPrimaProntoInviato)
+            {
+                avvisoComandoPrimaProntoInviato = true;
+                UnityEngine.Debug.LogWarning("[BRIDGE] Comando inviato prima che il ponte fosse pronto: verra' perso. " + jsonComando);
+            }
+
             using (UdpClient sendClient = new UdpClient())
             {
                 byte[] data = Encoding.UTF8.GetBytes(jsonComando);

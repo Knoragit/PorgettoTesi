@@ -288,7 +288,7 @@ public class ManualAnchor : MonoBehaviour
         testo.fontSize = 30f;
         testo.alignment = TextAlignmentOptions.Center;
         testo.color = Color.white;
-        testo.text = "<color=#ede580><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
+        testo.text = "<color=#d3b99f><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
 
         messaggioAncoraggio = go;
     }

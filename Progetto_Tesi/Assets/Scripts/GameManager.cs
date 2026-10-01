@@ -47,6 +47,13 @@ public class GameManager : MonoBehaviour
     private float tempoUltimaNotaScala = -1f;
     // True mentre il bridge sta riproducendo l'esempio dimostrativo della sfida.
     private bool esempioInCorso = false;
+    // True quando il bridge ha confermato ("example_done") la fine dell'esempio:
+    // distingue "riprodotto" da "comando perso, devo ritentare".
+    private bool esempioCompletato = false;
+    // "clear_scene" ricevuto dal bridge mentre l'esempio era ancora in riproduzione:
+    // lo rimandiamo alla fine, altrimenti la colonna dell'esempio viene distrutta
+    // nello stesso frame in cui nasce (e non si vede nulla).
+    private bool clearSceneInAttesa = false;
     // Coroutine dell'esempio/sfida corrente del Tutorial: fermata se si abbandona
     // o si riapre il tutorial (evita coroutine orfane che bloccano la rilevazione).
     private Coroutine tutorialCoroutine = null;
@@ -70,6 +77,11 @@ public class GameManager : MonoBehaviour
     public static readonly Color IronGrey = new Color(0.2745f, 0.2863f, 0.2980f, 1f);       // #46494c
     public static readonly Color BlueSlate = new Color(0.2980f, 0.3608f, 0.4078f, 1f);      // #4c5c68
     public static readonly Color PacificCyan = new Color(0.0980f, 0.5216f, 0.6314f, 1f);    // #1985a1
+
+    // --- NUOVA PALETTE PULSANTI/PANNELLI (Cool Steel / Steel Blue / Tan) ---
+    public static readonly Color CoolSteel = new Color(0.6046f, 0.6784f, 0.7490f, 1f);  // #9aadbf
+    public static readonly Color SteelBlue = new Color(0.4275f, 0.5961f, 0.7294f, 1f);  // #6d98ba
+    public static readonly Color TanColor = new Color(0.8275f, 0.7255f, 0.6235f, 1f);   // #d3b99f
 
     // --- PALETTE SCRITTE COLORATE (invariate) ---
     public static readonly Color NavajoWhite = new Color(1.000f, 0.878f, 0.710f, 1f); // #ffe0b5
@@ -212,6 +224,19 @@ public class GameManager : MonoBehaviour
         if (MaterialeTesto != null) label.fontSharedMaterial = MaterialeTesto;
     }
 
+    // Ombra morbida sotto al bottone (il rettangolo del bottone non cambia, quindi
+    // non serve aggiungere un'immagine a parte). Segue anche la scala dell'hover,
+    // essendo un componente dello stesso GameObject.
+    public static void ApplicaPenombra(GameObject go, float alfa = 0.30f, float distanza = 3f)
+    {
+        if (go == null) return;
+        Shadow ombra = go.GetComponent<Shadow>();
+        if (ombra == null) ombra = go.AddComponent<Shadow>();
+        ombra.effectColor = new Color(0f, 0f, 0f, alfa);
+        ombra.effectDistance = new Vector4(0f, -distanza, 0f, 0f);
+        ombra.useGraphicAlpha = true;
+    }
+
     private void Awake()
     {
         ConfiguraStatoIniziale();
@@ -339,30 +364,31 @@ public class GameManager : MonoBehaviour
     private void ApplicaPalette()
     {
         // Bottoni del menu, Riancora, "Torna al Menù" e Genera Report:
-        // Alabaster -> Pacific Cyan (hover), Iron Grey (conferma), testo nero.
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Tutorial"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Osservatore"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
-        StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), AlabasterGrey, PacificCyan, IronGrey, Color.black);
+        // Cool Steel base, Steel Blue (hover/pressione), testo nero.
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Tutorial"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Osservatore"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), CoolSteel, SteelBlue, SteelBlue, Color.black);
 
         // "Indietro" di Osservatore/Seguimi: gestiti a mano da IndietroFeedback.
         StileIndietro(TrovaFiglio(observerGroup, "Bottone-Indietro"));
         StileIndietro(TrovaFiglio(seguimiGroup, "Bottone-Indietro"));
 
-        // Pannelli "Sfondo" di Tutorial e FaiTu: Blue Slate.
+        // Pannelli "Sfondo" di Tutorial e FaiTu: Tan, con testi resi scuri.
         ColoraPannelli(tutorialGroup);
         ColoraPannelli(faiTuGroup);
+        ColoraTestiScuriPannelli(tutorialGroup);
+        ColoraTestiScuriPannelli(faiTuGroup);
 
-        // Titoli dei gruppi: Navajo (la calibrazione resta invariata).
+        // Titoli dei gruppi: Navajo (la calibrazione resta invariata; i testi dei
+        // pannelli Tan sono gia' stati resi scuri).
         ColoraTitoli(menuGroup);
-        ColoraTitoli(tutorialGroup);
         ColoraTitoli(observerGroup);
         ColoraTitoli(seguimiGroup);
-        ColoraTitoli(faiTuGroup);
     }
 
     private static void StileBottone(Transform target, Color baseC, Color hoverC, Color pressedC, Color testo)
@@ -387,6 +413,8 @@ public class GameManager : MonoBehaviour
 
         TextMeshProUGUI label = target.GetComponentInChildren<TextMeshProUGUI>(true);
         if (label != null) label.color = testo;
+
+        ApplicaPenombra(target.gameObject);
     }
 
     private static void StileIndietro(Transform target)
@@ -394,22 +422,29 @@ public class GameManager : MonoBehaviour
         if (target == null) return;
 
         Image img = target.GetComponent<Image>();
-        if (img != null) img.color = AlabasterGrey;
+        if (img != null) img.color = CoolSteel;
 
         Button btn = target.GetComponent<Button>();
         if (btn != null)
         {
             ColorBlock c = btn.colors;
-            c.highlightedColor = PacificCyan;
-            c.pressedColor = IronGrey;
+            c.highlightedColor = SteelBlue;
+            c.pressedColor = SteelBlue;
             btn.colors = c;
         }
 
         IndietroFeedback fb = target.GetComponent<IndietroFeedback>();
-        if (fb != null) fb.ImpostaColori(AlabasterGrey, PacificCyan);
+        if (fb != null)
+        {
+            fb.ImpostaColori(CoolSteel, SteelBlue);
+            fb.fattoreHover = 1.12f;
+            fb.fattorePremuto = 1.06f;
+        }
 
         TextMeshProUGUI label = target.GetComponentInChildren<TextMeshProUGUI>(true);
         if (label != null) label.color = Color.black;
+
+        ApplicaPenombra(target.gameObject);
     }
 
     private static void ColoraPannelli(GameObject gruppo)
@@ -419,7 +454,20 @@ public class GameManager : MonoBehaviour
         {
             if (t.name != "Sfondo") continue;
             Image img = t.GetComponent<Image>();
-            if (img != null) img.color = BlueSlate;
+            if (img != null) img.color = TanColor;
+        }
+    }
+
+    // I testi dei pannelli Tutorial/FaiTu (ora Tan, chiaro) vengono resi scuri per
+    // leggibilità: tutto tranne le label dei bottoni (già nere da StileBottone).
+    private static void ColoraTestiScuriPannelli(GameObject gruppo)
+    {
+        if (gruppo == null) return;
+        Color scuro = new Color(0.298f, 0.153f, 0.098f, 1f); // #4c2719 Espresso
+        foreach (TextMeshProUGUI t in gruppo.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (t.GetComponentInParent<Button>() != null) continue;
+            t.color = scuro;
         }
     }
 
@@ -526,6 +574,8 @@ public class GameManager : MonoBehaviour
                 esempioInCorso = false;
                 if (udpReceiver != null) udpReceiver.InviaComandoStopEsempio();
             }
+            esempioCompletato = false;
+            ApplicaClearSceneInAttesa();
         }
 
         if (faiTuBannerCoroutine != null) StopCoroutine(faiTuBannerCoroutine);
@@ -602,16 +652,58 @@ public class GameManager : MonoBehaviour
         tempoUltimoRilascio = -1f;
         ultimaNotaMidi = -1;
         inTransizione = false;
+        esempioInCorso = false;
+        esempioCompletato = false;
+        clearSceneInAttesa = false;
 
         CambiaStato(AppState.Tutorial);
         if (tutorialCoroutine != null) StopCoroutine(tutorialCoroutine);
         tutorialCoroutine = StartCoroutine(AvviaSfidaConEsempio(1, "SFIDA 1:\nPremi un tasto molto delicatamente (Suona 'Piano')"));
     }
 
+    public bool EsempioInCorso => esempioInCorso;
+
     // Chiamato dal bridge quando termina la riproduzione dell'esempio.
     public void EsempioCompletato()
     {
+        esempioCompletato = true;
         esempioInCorso = false;
+        // NOTA: qui NON si applica il "clear_scene" differito. Il bridge manda
+        // "clear_scene" ed "example_done' nello stesso frame: pulire subito
+        // distruggerebbe la colonna dell'esempio nel frame in cui e' nata.
+        // Il reset viene applicato dalla coroutine, dopo un breve periodo di
+        // cassa (vedi AvviaSfidaConEsempio).
+    }
+
+    // "clear_scene" dal bridge: durante l'esempio lo rimandiamo, altrimenti la
+    // colonna dell'esempio verrebbe distrutta nel frame in cui nasce (succede se i
+    // messaggi arrivano tutti insieme, es. dopo un hitch alla prima apertura).
+    public void NotificaClearScene()
+    {
+        if (esempioInCorso)
+        {
+            clearSceneInAttesa = true;
+            Debug.Log("[TUTORIAL] clear_scene differito: l'esempio deve restare visibile.");
+            return;
+        }
+        PulisciScena();
+    }
+
+    private void ApplicaClearSceneInAttesa()
+    {
+        if (!clearSceneInAttesa) return;
+        clearSceneInAttesa = false;
+        PulisciScena();
+    }
+
+    private void PulisciScena()
+    {
+        PianoVisualizer vis = FindFirstObjectByType<PianoVisualizer>();
+        if (vis != null)
+        {
+            vis.ResetVisualizer();
+            vis.PulisciNoteAtteseVisive();
+        }
     }
 
     private static string TitoloSfida(int sfida)
@@ -632,6 +724,7 @@ public class GameManager : MonoBehaviour
         inTransizione = true;
         sfidaAttuale = sfida;
         esempioInCorso = false;
+        esempioCompletato = false;
 
         try
         {
@@ -643,34 +736,113 @@ public class GameManager : MonoBehaviour
 
             yield return new WaitForSeconds(1.2f);
 
-            if (udpReceiver != null)
+            // 1) Aspettiamo che la tastiera (bridge) sia davvero in ascolto. All'avvio
+            //    il bridge scansiona i brani e inizializza il MIDI: se spediamo
+            //    "play_example" prima, il pacchetto viene scartato e l'esempio non
+            //    parte MAI (e' quello che rendeva la sfida 1 muta al primo avvio).
+            if (udpReceiver != null && !udpReceiver.BridgePronto)
             {
-                udpReceiver.InviaComandoEsempio(sfida);
-                esempioInCorso = true;
+                float scadenzaPonte = Time.time + 30f;
+                while (!udpReceiver.BridgePronto && Time.time < scadenzaPonte)
+                {
+                    if (tutorialText != null)
+                    {
+                        tutorialText.text = "SFIDA " + sfida + "\n" + TitoloSfida(sfida)
+                                            + "\n\nConnessione alla tastiera in corso...";
+                    }
+                    yield return null;
+                }
+                if (!udpReceiver.BridgePronto)
+                {
+                    Debug.Log("[TUTORIAL] Ponte MIDI non collegato dopo 30s: salto l'esempio.");
+                    if (tutorialText != null) tutorialText.text = "La tastiera non risponde: prova tu";
+                    yield return new WaitForSeconds(1.5f);
+                    esempioInCorso = false;
+                    if (clearSceneInAttesa)
+                    {
+                        yield return new WaitForSeconds(0.6f);
+                    }
+                    ApplicaClearSceneInAttesa();
+                    PreparaSfidaPerLUtente();
+                    inTransizione = false;
+                    if (tutorialText != null) tutorialText.text = testoDescrizione;
+                    yield break;
+                }
             }
 
-            // Attende la fine dell'esempio. Timeout breve (3s) di sicurezza: se il
-            // bridge non conferma (non riavviato, o senza supporto esempi) si passa
-            // comunque alla prova dell'utente, mai un tutorial bloccato.
-            if (tutorialText != null) tutorialText.text = "Riproduco l'esempio...";
-            float timeout = Time.time + 3f;
-            while (esempioInCorso && Time.time < timeout)
-                yield return null;
-            if (esempioInCorso)
+            if (udpReceiver != null)
             {
-                Debug.Log("[TUTORIAL] Esempio non confermato dal bridge: passo alla prova.");
+                // Foglio pulito nel bridge: nessun esempio precedente rimasto attivo.
+                udpReceiver.InviaComandoStopEsempio();
+
+                // "play_example" e' un singolo datagram UDP: se il bridge non e'
+                // in ascolto (1a volta, avvio a freddo, riavvio) il comando si perde
+                // e senza retry l'esempio non si vede MAI. Riproviamo fino a 3 volte,
+                // fermando l'eventuale esempio partito prima di riprovare (altrimenti
+                // si sovrappongono due riproduzioni).
+                const int TENTATIVI_MAX = 3;
+                // 5s: l'esempio piu' lungo (sfida 2, scala crescente) dura 3.0s, quindi
+                // una soglia piu' breve farebbe scattare il ritento mentre l'esempio sta
+                // ancora suonando e lo riavvierebbe da capo.
+                const float ATTESA_PER_TENTATIVO = 5f;
+
+                for (int tentativo = 1; tentativo <= TENTATIVI_MAX && !esempioCompletato; tentativo++)
+                {
+                    udpReceiver.InviaComandoEsempio(sfida);
+                    esempioInCorso = true;
+                    Debug.Log("[TUTORIAL] Esempio sfida " + sfida + ": play_example inviato (tentativo "
+                              + tentativo + "/" + TENTATIVI_MAX + ").");
+
+                    if (tutorialText != null)
+                        tutorialText.text = tentativo == 1 ? "Riproduco l'esempio..." : "Riproduco l'esempio (riprovo...)";
+
+                    float scadenza = Time.time + ATTESA_PER_TENTATIVO;
+                    while (!esempioCompletato && esempioInCorso && Time.time < scadenza)
+                        yield return null;
+
+                    if (esempioCompletato) break;
+
+                    // Nessuna conferma entro il tempo: il comando e' andato perso o il
+                    // bridge non ha supporto esempi.
+                    esempioInCorso = false;
+                    if (tentativo < TENTATIVI_MAX)
+                    {
+                        Debug.Log("[TUTORIAL] Bridge non conferma entro " + ATTESA_PER_TENTATIVO + "s: ritento.");
+                        udpReceiver.InviaComandoStopEsempio();
+                        yield return new WaitForSeconds(0.4f);
+                    }
+                }
+
+                if (esempioCompletato)
+                {
+                    Debug.Log("[TUTORIAL] Bridge ha confermato la fine dell'esempio (sfida " + sfida + ").");
+                }
+                else
+                {
+                    Debug.Log("[TUTORIAL] Bridge non conferma dopo " + TENTATIVI_MAX
+                              + " tentativi: passo alla prova senza esempio.");
+                    if (tutorialText != null) tutorialText.text = "L'esempio non e' disponibile: prova tu";
+                    yield return new WaitForSeconds(1.2f);
+                }
             }
+            else
+            {
+                Debug.Log("[TUTORIAL] Bridge assente: nessun esempio, passo alla prova.");
+            }
+
             esempioInCorso = false;
+            // Se il bridge aveva mandato "clear_scene" DURANTE l'esempio, la pulizia
+            // era stata differita: diamo prima una breve cassa (0.6s) cosi' la colonna
+            // appena nata si vede, poi puliamo davvero la scena.
+            if (clearSceneInAttesa)
+            {
+                yield return new WaitForSeconds(0.6f);
+            }
+            ApplicaClearSceneInAttesa();
 
             // Reset completo dello stato: la prova dell'utente parte da zero e i tasti
             // dell'esempio non devono influenzare la rilevazione.
-            tastiTutorialPremuti.Clear();
-            primaNotaStaccato = -1;
-            noteScalaCrescente = 0;
-            tempoUltimaNotaScala = -1f;
-            tempoUltimoRilascio = -1f;
-            ultimaNotaMidi = -1;
-            ultimaVelocita = 0f;
+            PreparaSfidaPerLUtente();
 
             inTransizione = false;
             if (tutorialText != null) tutorialText.text = "Ora tocca a te";
@@ -683,6 +855,17 @@ public class GameManager : MonoBehaviour
             // inTransizione deve SEMPRE tornare false: nessun tutorial bloccabile.
             inTransizione = false;
         }
+    }
+
+    private void PreparaSfidaPerLUtente()
+    {
+        tastiTutorialPremuti.Clear();
+        primaNotaStaccato = -1;
+        noteScalaCrescente = 0;
+        tempoUltimaNotaScala = -1f;
+        tempoUltimoRilascio = -1f;
+        ultimaNotaMidi = -1;
+        ultimaVelocita = 0f;
     }
 
     public void AttivaOsservatore() => CambiaStato(AppState.Osservatore);
