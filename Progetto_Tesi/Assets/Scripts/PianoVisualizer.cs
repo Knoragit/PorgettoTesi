@@ -57,6 +57,16 @@ public class PianoVisualizer : MonoBehaviour
     [Header("Mesh Colonna (guide note attese)")]
     public Mesh columnMesh;
 
+    // Le guide delle note attese (modalita' Seguimi) usano due verdi distinti:
+    // i tasti bianchi restano sul verde acido di sempre, i tasti neri su un verde
+    // piu' scuro della stessa tinta. L'alpha dei neri e' piu' alto perche' a 0.15
+    // un verde scurito sparisce praticamente sullo sfondo quasi nero.
+    [Header("Guide Note Attese (modalita' Seguimi)")]
+    public Color verdeGuidaTastoBianco = new Color(0.0f, 1.0f, 0.35f, 0.15f);
+    public Color verdeGuidaTastoNero = new Color(0.0f, 0.55f, 0.19f, 0.22f);
+    public Color verdeEtichettaTastoBianco = Color.green;
+    public Color verdeEtichettaTastoNero = new Color(0.0f, 0.55f, 0.0f, 1f);
+
     [Header("Sagoma Colonna")]
     public float traslucenzaColonna = 0.5f;
 
@@ -194,16 +204,17 @@ public class PianoVisualizer : MonoBehaviour
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
 
-            mat.color = new Color(0.0f, 1.0f, 0.35f, 0.15f);
+            bool tastoNero = IsTastoNero(note);
+            mat.color = tastoNero ? verdeGuidaTastoNero : verdeGuidaTastoBianco;
             r.material = mat;
 
             float altezzaGuida = 0.15f;
-            float spessore = IsTastoNero(note) ? 0.009f : 0.016f;
+            float spessore = tastoNero ? 0.009f : 0.016f;
 
             colonnaGuida.transform.localScale = new Vector3(spessore, altezzaGuida, spessore);
             colonnaGuida.transform.localPosition = new Vector3(0f, altezzaGuida * 0.5f, 0f);
 
-            CreaEtichettaTesto(radiceGuida, ConvertiMidiInNomeNota(note), Color.green);
+            CreaEtichettaTesto(radiceGuida, ConvertiMidiInNomeNota(note), tastoNero ? verdeEtichettaTastoNero : verdeEtichettaTastoBianco);
 
             expectedVisualObjects[note] = radiceGuida;
             expectedVisualList.Add(radiceGuida);
