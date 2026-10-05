@@ -1286,8 +1286,18 @@ public class GameManager : MonoBehaviour
 
         yield return new WaitForSeconds(2.0f);
 
-        // Riparte da zero anche il primo tasto dello staccato per il prossimo tentativo.
-        primaNotaStaccato = -1;
+        // Reset secco di TUTTO lo stato di tentativo, non solo del primo tasto dello
+        // staccato. Motivo: durante questi 2s inTransizione blocca anche i "release"
+        // (valuta nota, riga 1165: la guardia e' prima sia di press sia di release),
+        // quindi le note che erano premute all'errore non ricevono mai il rilascio e
+        // resterebbero in tastiTutorialPremuti. ceSovrapposizioneKOT resterebbe true
+        // e lo Staccato continuerebbe a segnalare "Note sovrapposte!" anche dopo un
+        // tentativo corretto. PreparaSfidaPerLUtente fa la Clear() e azzera anche
+        // tempoUltimoRilascio, senza cui il Legato non ripartirebbe.
+        // Va dopo l'attesa e non prima: se l'utente tiene ancora un tasto premuto, il
+        // suo rilascio arriverebbe dopo il reset e azzererebbe il conteggio.
+        PreparaSfidaPerLUtente();
+
         if (tutorialText != null) tutorialText.text = testoSfidaDaRipristinare;
         inTransizione = false;
     }
