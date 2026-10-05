@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 using TMPro;
 
@@ -60,6 +61,8 @@ public class ManualAnchor : MonoBehaviour
         {
             Debug.Log($"[CALIBRAZIONE] GuideSphere colore materiale: {guideSphere.GetComponent<Renderer>().sharedMaterial.color}, shader: {guideSphere.GetComponent<Renderer>().sharedMaterial.shader.name}");
         }
+
+        CreaPannelloCalibrazione();
 
         AggiornaTestoIstruzioni();
     }
@@ -242,6 +245,7 @@ public class ManualAnchor : MonoBehaviour
     }
 
     private GameObject messaggioAncoraggio;
+    private GameObject pannelloCalibrazione;
 
     private IEnumerator AttivaMenuDopoCalibrazione()
     {
@@ -271,7 +275,7 @@ public class ManualAnchor : MonoBehaviour
         NascondiMessaggioAncoraggio();
         if (canvasTransform == null) return;
 
-        GameObject go = new GameObject("MessaggioAncoraggio", typeof(RectTransform));
+        GameObject go = new GameObject("MessaggioAncoraggio", typeof(RectTransform), typeof(Image));
         go.transform.SetParent(canvasTransform, false);
 
         RectTransform rt = (RectTransform)go.transform;
@@ -281,14 +285,29 @@ public class ManualAnchor : MonoBehaviour
         rt.anchoredPosition = Vector2.zero;
         rt.sizeDelta = new Vector2(600f, 400f);
 
-        TextMeshProUGUI testo = go.AddComponent<TextMeshProUGUI>();
+        // Pannello sulla root e testo su un figlio: in UGUI un Graphic figlio si
+        // disegna DOPO quello del padre, quindi un pannello figlio coprirebbe il
+        // testo. Cosi' l'ordine di disegno e' deterministico.
+        ApplicaStilePannello(go.GetComponent<Image>());
+
+        GameObject goTesto = new GameObject("TestoAncoraggio", typeof(RectTransform));
+        goTesto.transform.SetParent(go.transform, false);
+
+        RectTransform rtTesto = (RectTransform)goTesto.transform;
+        rtTesto.anchorMin = Vector2.zero;
+        rtTesto.anchorMax = Vector2.one;
+        rtTesto.offsetMin = Vector2.zero;
+        rtTesto.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI testo = goTesto.AddComponent<TextMeshProUGUI>();
         testo.font = GameManager.FontApp != null
             ? GameManager.FontApp
             : (instructionalText != null ? instructionalText.font : testo.font);
         testo.fontSize = 30f;
         testo.alignment = TextAlignmentOptions.Center;
-        testo.color = Color.white;
-        testo.text = $"<color=#{GameManager.Hex(GameManager.SteelBlue)}><b>ANCORAGGIO RIUSCITO!</b></color>\n\nIl menu si aprira' tra 3 secondi...";
+        testo.raycastTarget = false;
+        testo.color = GameManager.SteelBlue;
+        testo.text = "<b>ANCORAGGIO RIUSCITO!</b>\n\nIl menu si aprira' tra 3 secondi...";
 
         messaggioAncoraggio = go;
     }
@@ -300,6 +319,59 @@ public class ManualAnchor : MonoBehaviour
             Destroy(messaggioAncoraggio);
             messaggioAncoraggio = null;
         }
+    }
+
+    // Stile dei pannelli, uguale a quelli del tutorial: sfondo bianco, bordi
+    // arrotondati e ombra. La sprite arrotondata la chiediamo a GameManager
+    // (SpriteArrotondato), che e' gia' il modo in cui i bottoni del tutorial la
+    // prendono a runtime; l'ombra e' GameManager.ApplicaPenombra. Se la sprite
+    // non arrivasse, l'Image resta un rettangolo bianco semplice.
+    private static void ApplicaStilePannello(Image img)
+    {
+        img.color = Color.white;
+        img.raycastTarget = false;
+
+        Sprite s = GameManager.SpriteArrotondato;
+        if (s != null)
+        {
+            img.sprite = s;
+            img.type = Image.Type.Sliced;
+        }
+
+        GameManager.ApplicaPenombra(img.gameObject);
+    }
+
+    // Pannello bianco dietro al testo di calibrazione. Non puo' vivere nella
+    // scena (che non si tocca), quindi nasce a runtime come sibling del testo: e'
+    // il primo figlio di GruppoCalibrazione, che non ha un Graphic proprio, e
+    // per questo l'ordine dei figli basta a renderlo dietro a TestoIstruzioni.
+    private void CreaPannelloCalibrazione()
+    {
+        if (instructionalText == null) return;
+        if (pannelloCalibrazione != null) return;
+
+        Transform contenitore = instructionalText.transform.parent;
+        if (contenitore == null) return;
+
+        GameObject p = new GameObject("PannelloCalibrazione", typeof(RectTransform), typeof(Image));
+        p.transform.SetParent(contenitore, false);
+
+        RectTransform prt = (RectTransform)p.transform;
+        prt.anchorMin = new Vector2(0.5f, 0.5f);
+        prt.anchorMax = new Vector2(0.5f, 0.5f);
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+
+        // rectTransform.rect e' la dimensione effettiva del testo (600x400 dalla
+        // scena). rect non e' esposto su TextMeshProUGUI, quindi si passa dal
+        // RectTransform.
+        prt.sizeDelta = instructionalText.rectTransform.rect.size;
+
+        ApplicaStilePannello(p.GetComponent<Image>());
+
+        p.transform.SetAsFirstSibling();
+
+        pannelloCalibrazione = p;
     }
 
     public void ResettaStatoCalibrazione()
@@ -337,6 +409,15 @@ public class ManualAnchor : MonoBehaviour
     {
         if (instructionalText == null) return;
 
+        // Il corpo non taggato ("Muovi la testa per...") prende il colore base,
+        // che ora e' nero per contrastare sul pannello bianco. I tag <color=...>
+        // gia' presenti nelle stringhe restano invariati e lo sovrascrivono.
+        instructionalText.color = Color.black;
+
+        // Nella scena il testo e' TopLeft: sul pannello bianco si legge meglio
+        // centrato, e in verticale sfrutta il vuoto sopra e sotto il blocco.
+        instructionalText.alignment = TextAlignmentOptions.Center;
+
         switch (currentStep)
         {
             case 0:
@@ -346,10 +427,13 @@ public class ManualAnchor : MonoBehaviour
                 instructionalText.text = "<color=#5555FF><b>PUNTO 2</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#5555FF><b>BLU</b></color> (Estremo Destro) e fai pinch con la mano destra.";
                 break;
             case 2:
-                instructionalText.text = "<color=#55FF55><b>PUNTO 3</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#55FF55><b>VERDE</b></color> (Do Centrale) e fai pinch con la mano destra.";
+                // Verde e giallo scuriti: sul pannello bianco #55FF55 (1,33:1) e
+                // #FFFF55 (1,07:1) non si vedevano piu'. Rosso e blu reggono
+                // cosi' come sono (3,14:1 e 5,09:1) e non li ho toccati.
+                instructionalText.text = "<color=#2A802A><b>PUNTO 3</b></color>\n\nMuovi la testa per posizionare la pallina verde sullo sticker <color=#2A802A><b>VERDE</b></color> (Do Centrale) e fai pinch con la mano destra.";
                 break;
             case 3:
-                instructionalText.text = "<color=#FFFF55><b>CALIBRAZIONE COMPLETATA!</b></color>";
+                instructionalText.text = "<color=#80802A><b>CALIBRAZIONE COMPLETATA!</b></color>";
                 break;
         }
     }
