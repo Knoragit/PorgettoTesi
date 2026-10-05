@@ -11,11 +11,14 @@ public class ScrollbarVisuale : MonoBehaviour, IBeginDragHandler, IDragHandler, 
     public Image handleImg;
     public Image trackImg;
 
-    private static readonly Color ColoreStabile = new Color(0.6046f, 0.6784f, 0.7490f, 1f);   // Cool Steel
-    private static readonly Color ColoreHover = new Color(0.4275f, 0.5961f, 0.7294f, 1f);   // Steel Blue
-    private static readonly Color ColoreDrag = new Color(0.4275f, 0.5961f, 0.7294f, 1f);    // Steel Blue
-    private static readonly Color TracciaStabile = new Color(0.6046f, 0.6784f, 0.7490f, 0.30f); // Cool Steel
-    private static readonly Color TracciaAttiva = new Color(0.6046f, 0.6784f, 0.7490f, 0.55f);  // Cool Steel
+    // Riferimenti alla palette (vedi GameManager): evita che la scrollbar resti
+    // indietro a ogni cambio di colore.
+    private static readonly Color ColoreStabile = GameManager.SteelBlue;    // Steel Blue
+    private static readonly Color ColoreHover = GameManager.DustyRose;       // Dusty Rose
+    private static readonly Color ColoreDrag = GameManager.DustyRose;
+    private static readonly Color TracciaStabile = GameManager.ConAlfa(GameManager.SteelBlue, 0.30f);
+    private static readonly Color TracciaAttiva = GameManager.ConAlfa(GameManager.SteelBlue, 0.55f);
+
 
     private float targetNorm = 1f;
     private bool dragging = false;

@@ -14,9 +14,11 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     private Vector3 scalaBase = Vector3.one;
     private bool premuto = false;
 
-    private static readonly Color ColoreBase = new Color(0.6046f, 0.6784f, 0.7490f, 1f);   // #9aadbf Cool Steel
-    private static readonly Color ColoreHover = new Color(0.4275f, 0.5961f, 0.7294f, 1f);   // #6d98ba Steel Blue
-    private static readonly Color ColorePremuto = new Color(0.4275f, 0.5961f, 0.7294f, 1f);  // #6d98ba Steel Blue
+    // Riferimenti alla palette: senza questi, i tasti resterebbero sul vecchio colore
+    // a ogni cambio di palette.
+    private static readonly Color ColoreBase = GameManager.TanColor;     // Tan
+    private static readonly Color ColoreHover = GameManager.DustyRose;   // Dusty Rose
+    private static readonly Color ColorePremuto = GameManager.DustyRose;
 
     private const float FattoreHover = 1.18f;    // ingrandimento al passaggio del raggio
     private const float FattorePremuto = 1.08f;
@@ -26,7 +28,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
         img = GetComponent<Image>();
         etichetta = GetComponentInChildren<TextMeshProUGUI>(true);
         scalaBase = transform.localScale;
-        Applica(1f, ColoreBase, true);
+        Applica(1f, ColoreBase);
     }
 
     void OnEnable()
@@ -41,7 +43,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
 
     public void OnPointerEnter(PointerEventData e)
     {
-        if (!premuto) Applica(FattoreHover, ColoreHover, false);
+        if (!premuto) Applica(FattoreHover, ColoreHover);
     }
 
     public void OnPointerExit(PointerEventData e)
@@ -52,7 +54,7 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     public void OnPointerDown(PointerEventData e)
     {
         premuto = true;
-        Applica(FattorePremuto, ColorePremuto, false);
+        Applica(FattorePremuto, ColorePremuto);
     }
 
     public void OnPointerUp(PointerEventData e)
@@ -64,13 +66,16 @@ public class KeyFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
     private void Rilascia()
     {
         premuto = false;
-        Applica(1f, ColoreBase, false);
+        Applica(1f, ColoreBase);
     }
 
-    private void Applica(float fattoreScala, Color colore, bool testoScuro)
+    // Con Tan e Dusty Rose il nero e' l'unico colore che regge su entrambi (11.21:1
+    // e 6.10:1), quindi il tasto e' sempre con lettering nero: il parametro
+    // testoScuro della firma storica non serve piu' e resta ignorato.
+    private void Applica(float fattoreScala, Color colore)
     {
         transform.localScale = scalaBase * fattoreScala;
         if (img != null) img.color = colore;
-        if (etichetta != null) etichetta.color = testoScuro ? Color.black : Color.white;
+        if (etichetta != null) etichetta.color = Color.black;
     }
 }

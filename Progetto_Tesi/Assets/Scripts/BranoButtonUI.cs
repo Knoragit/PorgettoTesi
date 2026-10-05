@@ -19,7 +19,8 @@ public class BranoButtonUI : MonoBehaviour
     {
         if (testoTitoloEAutore != null)
         {
-            testoTitoloEAutore.text = $"{titolo}\n<size=80%><color=#ffe0b5>{autore}</color></size>";
+            // Autore in Inchiostro: e' il tono scuro della palette e regge sul Tan.
+            testoTitoloEAutore.text = $"{titolo}\n<size=70%><color=#{GameManager.Hex(GameManager.Inchiostro)}>{autore}</color></size>";
         }
 
         if (testoDifficolta != null)

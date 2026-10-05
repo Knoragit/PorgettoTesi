@@ -18,6 +18,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.backends.backend_pdf import PdfPages
 
 # ==========================================
@@ -38,6 +39,37 @@ if not os.path.exists(SESSIONI_PATH):
 CANZONI_PATH = os.path.join(DESKTOP_PATH, "Canzoni")
 if not os.path.exists(CANZONI_PATH):
     os.makedirs(CANZONI_PATH)
+
+# ==========================================
+# FONT DEI PDF: Raleway, lo stesso dell'app Unity
+# ==========================================
+# matplotlib non conosce i font installati nelle app: va registrato a mano il file
+# TTF, altrimenti i report escono con DejaVu Sans. Si prende Raleway/static perche'
+# contiene sia il Regular sia il Bold (serve per i titoli con fontweight='bold');
+# Resources/Fonts/ dell'app ha solo il Regular.
+# Il nome famiglia non viene indovinato: si legge dal file, cosi' regge anche se il
+# font venisse rigenerato. Se manca, si avvisa e si resta con il default: il report
+# deve uscire comunque.
+#
+# "font.family" e' una LISTA per il fallback: Raleway e' un font Latin e non
+# contiene la freccia U+2192 (usata in tutti i commenti del riquadro valutazione,
+# "-> tocco piu' leggero..."). Senza il fallback matplotlib metterebbe un
+# quadratino al posto della freccia, quindi dietro Raleway si lascia DejaVu Sans,
+# che ha i simboli mancanti.
+RALWAY_DIR = os.path.join(DESKTOP_PATH, "Raleway", "static")
+try:
+    _ral_regular = os.path.join(RALWAY_DIR, "Raleway-Regular.ttf")
+    _ral_bold = os.path.join(RALWAY_DIR, "Raleway-Bold.ttf")
+    if os.path.exists(_ral_regular):
+        font_manager.fontManager.addfont(_ral_regular)
+        if os.path.exists(_ral_bold):
+            font_manager.fontManager.addfont(_ral_bold)
+        _ral_name = font_manager.FontProperties(fname=_ral_regular).get_name()
+        plt.rcParams["font.family"] = [_ral_name, "DejaVu Sans"]
+    else:
+        print(f"[FONT] Raleway non trovato in {RALWAY_DIR}: i PDF useranno il font di default.")
+except Exception as e:
+    print(f"[FONT] Impossibile registrare Raleway ({e}): i PDF useranno il font di default.")
 
 # Numero massimo di risultati scaricati e salvati per ogni ricerca online
 MAX_RESULTS = 4
@@ -1286,11 +1318,7 @@ def generate_unified_report():
                     f"  → {commento_articolazione}\n\n"
                     f"TEMPO E RITMICA:\n"
                     f"  → {commento_tempo}\n\n"
-                    f"{blocco_allineamento}\n"
-                    f"SINTESI:\n"
-                    f"  L'esecuzione mostra la capacità di adattarsi alla struttura\n"
-                    f"  del brano di riferimento mantenendo gli elementi espressivi\n"
-                    f"  personali dell'esecutore."
+                    f"{blocco_allineamento}"
                 )
 
                 fig_analisi = plt.figure(figsize=(8.5, 11))
@@ -1336,7 +1364,7 @@ def generate_unified_report():
                 ax_text = fig_analisi.add_subplot(gs_a[2])
                 ax_text.axis('off')
                 ax_text.text(0.0, 0.98, text_valutazione, transform=ax_text.transAxes,
-                             fontsize=7.5, verticalalignment='top', family='monospace',
+                             fontsize=7.5, verticalalignment='top',
                              bbox=dict(boxstyle='round', facecolor='#eef2f5',
                                        edgecolor='#c5d0d8', alpha=0.9))
 

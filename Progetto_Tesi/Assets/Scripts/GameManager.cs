@@ -72,25 +72,68 @@ public class GameManager : MonoBehaviour
     private static Sprite sprArrotondato;
     private static Material matOmbra;
 
-    // --- PALETTE PANNELIi/BOTTONI (Alabaster/Iron/BlueSlate/Pacific) ---
-    public static readonly Color AlabasterGrey = new Color(0.8627f, 0.8627f, 0.8667f, 1f); // #dcdcdd
-    public static readonly Color IronGrey = new Color(0.2745f, 0.2863f, 0.2980f, 1f);       // #46494c
-    public static readonly Color BlueSlate = new Color(0.2980f, 0.3608f, 0.4078f, 1f);      // #4c5c68
-    public static readonly Color PacificCyan = new Color(0.0980f, 0.5216f, 0.6314f, 1f);    // #1985a1
-
-    // --- NUOVA PALETTE PULSANTI/PANNELLI (Cool Steel / Steel Blue / Tan) ---
-    public static readonly Color CoolSteel = new Color(0.6046f, 0.6784f, 0.7490f, 1f);  // #9aadbf
+    // --- PALETTE (Steel Blue / Tan / Dusty Rose) ---
+    // Unico insieme di colori per l'intera UI: pulsanti, pannelli, testi.
     public static readonly Color SteelBlue = new Color(0.4275f, 0.5961f, 0.7294f, 1f);  // #6d98ba
     public static readonly Color TanColor = new Color(0.8275f, 0.7255f, 0.6235f, 1f);   // #d3b99f
+    public static readonly Color DustyRose = new Color(0.7569f, 0.4667f, 0.4039f, 1f);  // #c17767
 
-    // --- PALETTE SCRITTE COLORATE (invariate) ---
-    public static readonly Color NavajoWhite = new Color(1.000f, 0.878f, 0.710f, 1f); // #ffe0b5
-    public static readonly Color MutedOlive = new Color(0.643f, 0.686f, 0.412f, 1f);   // #a4af69
-    public static readonly Color PaleAmber = new Color(0.929f, 0.898f, 0.502f, 1f);    // #ede580
-    public static readonly Color Espresso = new Color(0.298f, 0.153f, 0.098f, 1f);      // #4c2719
-    public static readonly Color LightCoral = new Color(0.898f, 0.420f, 0.439f, 1f);    // #e56b70
+    // Neutro scuro: e' la tonalita' notte dello stesso blu Steel Blue, non un colore
+    // nuovo. Serve per i testi sugli sfondi chiari Tan (nome dell'autore) e per il
+    // fondo del campo di ricerca.
+    public static readonly Color Inchiostro = new Color(0.1490f, 0.2039f, 0.3216f, 1f); // #263452
 
-    // --- FONT (Inter) ---
+    // Verde "brano scaricato" sulle righe Tan: serve SCURO (4.74:1), il verde chiaro
+    // #65b891 di prima era 1.27:1, cioe' illeggibile. Resta separato da
+    // SuccessoTutorial perche' i due verdi hanno usi (e fondi) diversi.
+    public static readonly Color Successo = new Color(0.1020f, 0.3294f, 0.2078f, 1f);   // #1a5435
+
+    // Twilight Indigo: bottone "Cerca", l'unico elemento scuro della UI a pieno.
+    // Il nero su questo blu e' 1.99:1 (illeggibile), quindi la label e' bianca
+    // (10.55:1).
+    public static readonly Color Indigo = new Color(0.2510f, 0.2157f, 0.4314f, 1f);     // #40376e
+
+    // Shamrock e Darl Amaranth: colori delle transizioni del tutorial (COMPLETATO,
+    // ECCELLENTE, errori). ATTENZIONE: il pannello del tutorial e' Steel Blue e i due
+    // colori hanno la stessa luminanza del pannello, quindi il verde Shamrock li e'
+    // 1.04:1, invisibile, mentre il rosso arriva a 3.23:1. Sono scelti cosi' per
+    // richiesta esplicita: il testo bianco che segue ("Ottimo lavoro! Rileggi
+    // bene...") resta leggibile e porta comunque il messaggio. Per tornare al
+    // verde leggibile basta sostituire SuccessoTutorial con TestoChiaro.
+    public static readonly Color SuccessoTutorial = new Color(0.3020f, 0.6314f, 0.4039f, 1f); // #4da167 Shamrock
+    public static readonly Color ErroreTutorial = new Color(0.4902f, 0.1137f, 0.2471f, 1f);   // #7d1d3f Darl Amaranth
+
+    // Testo sopra i pannelli Steel Blue: su un tono medio il massimo contrasto
+    // possibile e' il bianco (3.07:1). Tan sul pannello sarebbe 1.64:1 (invisibile),
+    // Dusty Rose 1.12:1. Va bene perche' le scritte della UI sono molto grandi.
+    public static readonly Color TestoChiaro = new Color(1f, 1f, 1f, 1f);
+
+    // Alone dei pulsanti Tan: sul nero della camera il blu Steel Blue si stacca
+    // nettamente (6.85:1).
+    public static readonly Color GlowColore = SteelBlue;
+
+    // Fondo scuro dei campi di testo.
+    public static Color SfondoScuro(float alfa) => new Color(Inchiostro.r, Inchiostro.g, Inchiostro.b, alfa);
+
+    // Stesso colore RGB con un alfa diverso: serve per i pannelli semitrasparenti
+    // (elenco, tastiera, traccia della scrollbar).
+    public static Color ConAlfa(Color c, float alfa) => new Color(c.r, c.g, c.b, alfa);
+
+    // Per i <color=#...> inline di TextMeshPro: la stringa non puo' interpolare
+    // direttamente un Color, quindi si passa dall'esadecimale.
+    //
+    // La conversione e' scritta a mano invece di delegarla a ColorUtility perche'
+    // i Color hanno float con 4 decimali, che raddoppiati per 255 non cadono mai
+    // su un intero esatto: 0.4039f * 255 = 102.9945 e troncando diventerebbe 0x66
+    // invece di 0x67, così Shamrock uscirebbe #4da166 invece di #4da167. Qui si
+    // arrotonda al byte piu' vicino, che e' sempre l'esadecimale scritto nella
+    // definizione del colore.
+    public static string Hex(Color c) => $"{CanaleHex(c.r)}{CanaleHex(c.g)}{CanaleHex(c.b)}";
+
+    private static string CanaleHex(float v) => Mathf.Clamp(Mathf.RoundToInt(v * 255f), 0, 255).ToString("X2");
+
+    // --- FONT ---
+    // Un'unica famiglia: Raleway (Resources/Fonts/Raleway SDF, atlas dinamica).
     private static TMP_FontAsset fontApp;
     private static bool fontCercato;
 
@@ -101,17 +144,20 @@ public class GameManager : MonoBehaviour
             if (!fontCercato)
             {
                 fontCercato = true;
-                fontApp = TrovaFontApp();
+                fontApp = TrovaFontConPriorita("raleway");
             }
             return fontApp;
         }
     }
 
-    private static TMP_FontAsset TrovaFontApp()
+    private static TMP_FontAsset TrovaFontConPriorita(params string[] nomiCercati)
     {
         TMP_FontAsset[] fontAssets = Resources.LoadAll<TMP_FontAsset>("Fonts");
-        foreach (TMP_FontAsset fa in fontAssets)
-            if (fa != null && fa.name.ToLower().Contains("inter")) return fa;
+        foreach (string cercato in nomiCercati)
+        {
+            foreach (TMP_FontAsset fa in fontAssets)
+                if (fa != null && fa.name.ToLower().Contains(cercato)) return fa;
+        }
         if (fontAssets.Length > 0 && fontAssets[0] != null) return fontAssets[0];
 
         Font[] fonts = Resources.LoadAll<Font>("Fonts");
@@ -122,6 +168,13 @@ public class GameManager : MonoBehaviour
         }
 
         return TMP_Settings.defaultFontAsset;
+    }
+
+    // I titoli sono riconosciuti per nome. In scena alcuni hanno uno spazio finale
+    // ("Testo Titolo "): il confronto deve normalizzarlo, altrimenti restano esclusi.
+    private static bool ETitolo(TextMeshProUGUI t)
+    {
+        return t != null && t.name != null && t.name.Trim() == "Testo Titolo";
     }
 
     public static Sprite SpriteArrotondato
@@ -147,7 +200,7 @@ public class GameManager : MonoBehaviour
     }
 
     // Materiale con ombra (underlay) costruito sul font attivo: clona il materiale
-    // del font e attiva l'underlay, cosi' l'ombra resta corretta anche con Inter.
+    // del font e attiva l'underlay.
     private static Material CreaMaterialeOmbra(TMP_FontAsset font)
     {
         if (font == null || font.material == null) return null;
@@ -215,10 +268,13 @@ public class GameManager : MonoBehaviour
         return null;
     }
 
-    // Applica a una label dei bottoni lo stile uniforme: font Inter, grassetto + ombra.
+    // Applica a una label lo stile uniforme: Raleway in grassetto + ombra. Essendo
+    // un unico font, anche i titoli restano in grassetto (la gerarchia la fa' la
+    // dimensione, non il peso) e l'ombra e' quella del font attivo.
     public static void ApplicaStileTesto(TextMeshProUGUI label)
     {
         if (label == null) return;
+
         if (FontApp != null) label.font = FontApp;
         label.fontStyle = FontStyles.Bold;
         if (MaterialeTesto != null) label.fontSharedMaterial = MaterialeTesto;
@@ -364,31 +420,84 @@ public class GameManager : MonoBehaviour
     private void ApplicaPalette()
     {
         // Bottoni del menu, Riancora, "Torna al Menù" e Genera Report:
-        // Cool Steel base, Steel Blue (hover/pressione), testo nero.
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Tutorial"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Osservatore"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), CoolSteel, SteelBlue, SteelBlue, Color.black);
-        StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), CoolSteel, SteelBlue, SteelBlue, Color.black);
+        // Tan base, Dusty Rose (hover/pressione), testo nero.
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Tutorial"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Osservatore"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), TanColor, DustyRose, DustyRose, Color.black);
 
         // "Indietro" di Osservatore/Seguimi: gestiti a mano da IndietroFeedback.
         StileIndietro(TrovaFiglio(observerGroup, "Bottone-Indietro"));
         StileIndietro(TrovaFiglio(seguimiGroup, "Bottone-Indietro"));
 
-        // Pannelli "Sfondo" di Tutorial e FaiTu: Tan, con testi resi scuri.
+        // Pannelli "Sfondo" di Tutorial e del banner FaiTu: Steel Blue, con i testi
+        // resi chiari (su un pannello Steel Blue il bianco e' l'unico leggibile).
         ColoraPannelli(tutorialGroup);
         ColoraPannelli(faiTuGroup);
-        ColoraTestiScuriPannelli(tutorialGroup);
-        ColoraTestiScuriPannelli(faiTuGroup);
+        ColoraTestiChiariPannelli(tutorialGroup);
+        ColoraTestiChiariPannelli(faiTuGroup);
 
-        // Titoli dei gruppi: Navajo (la calibrazione resta invariata; i testi dei
-        // pannelli Tan sono gia' stati resi scuri).
+        // "Report Generato / Lo trovi nella cartella Sessioni" e' l'unico testo di
+        // FaiTu che NON sta su un pannello (ConfermaReport non ha sfondo): resta
+        // quindi sul nero della camera, dove il blu Steel Blue e' ben leggibile
+        // (6.85:1). Va reimposto DOPO ColoraTestiChiariPannelli, che lo renderebbe
+        // bianco insieme a tutto il resto del gruppo.
+        TextMeshProUGUI reportText = faiTuReportMessaggio != null
+            ? faiTuReportMessaggio.GetComponent<TextMeshProUGUI>() : null;
+        if (reportText != null) reportText.color = SteelBlue;
+
+        // Titoli dei gruppi: bianchi (stanno su fondi diversi, nero o pannelli
+        // semitrasparenti: il bianco e' l'unico che regge su entrambi).
         ColoraTitoli(menuGroup);
         ColoraTitoli(observerGroup);
         ColoraTitoli(seguimiGroup);
+
+        ApplicaFontSizeMenu();
+    }
+
+    // Corpus dei bottoni di menu/FaiTu: un gradino piu' piccolo, perche' le
+    // etichette sono brevi e a font piu' grande occupavano troppo la faccia del
+    // pulsante. I valori stanno qui e non in scena cosi' restano un unico punto
+    // da modificare per tutta la UI (le label di scena restano il default).
+    private const float FS_MENU = 42f;          // i 4 bottoni del menu
+    private const float FS_RIPRESA = 60f;       // Riancora Pianoforte + Torna al Menu
+    private const float FS_GENERA_REPORT = 55f; // Genera Report Finale
+    // I "Bottone-Indietro" di Osservatore/Seguimi vivono in gruppi scalati x4:
+    // per apparire uguali al "Torna al Menu" (x1) il valore locale deve essere
+    // FS_RIPRESA / 4.
+    private const float FS_INDIETRO = FS_RIPRESA / 4f;
+
+    private void ApplicaFontSizeMenu()
+    {
+        ImpostaFontSizeFigli(menuGroup, "Bottone Tutorial", FS_MENU);
+        ImpostaFontSizeFigli(menuGroup, "Bottone Osservatore", FS_MENU);
+        ImpostaFontSizeFigli(menuGroup, "Bottone Seguimi", FS_MENU);
+        ImpostaFontSizeFigli(menuGroup, "Bottone Fai Tu", FS_MENU);
+        ImpostaFontSizeFigli(menuGroup, "BottoneRiancora", FS_RIPRESA);
+
+        // Riferimento di tutti i "Torna al Menu": CopiaStileBottoneTorna() deriva
+        // da questo anche Tutorial e i due "Bottone-Indietro".
+        ImpostaFontSizeFigli(faiTuGroup, "TornaAlMen\u00F9", FS_RIPRESA);
+        ImpostaFontSizeFigli(faiTuGroup, "GeneraReport", FS_GENERA_REPORT);
+
+        // CopiaStileBottoneTorna() gira PRIMA di questo metodo e copierebbe quindi
+        // il valore di scena (72): va reimposto anche il bottone del tutorial.
+        ImpostaFontSizeFigli(tutorialGroup, "TornaAlMenu", FS_RIPRESA);
+
+        ImpostaFontSizeFigli(observerGroup, "Bottone-Indietro", FS_INDIETRO);
+        ImpostaFontSizeFigli(seguimiGroup, "Bottone-Indietro", FS_INDIETRO);
+    }
+
+    private static void ImpostaFontSizeFigli(GameObject gruppo, string nome, float size)
+    {
+        Transform bottone = TrovaFiglio(gruppo, nome);
+        if (bottone == null) return;
+        TextMeshProUGUI txt = bottone.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (txt != null) txt.fontSize = size;
     }
 
     private static void StileBottone(Transform target, Color baseC, Color hoverC, Color pressedC, Color testo)
@@ -435,21 +544,21 @@ public class GameManager : MonoBehaviour
         if (target == null) return;
 
         Image img = target.GetComponent<Image>();
-        if (img != null) img.color = CoolSteel;
+        if (img != null) img.color = TanColor;
 
         Button btn = target.GetComponent<Button>();
         if (btn != null)
         {
             ColorBlock c = btn.colors;
-            c.highlightedColor = SteelBlue;
-            c.pressedColor = SteelBlue;
+            c.highlightedColor = DustyRose;
+            c.pressedColor = DustyRose;
             btn.colors = c;
         }
 
         IndietroFeedback fb = target.GetComponent<IndietroFeedback>();
         if (fb != null)
         {
-            fb.ImpostaColori(CoolSteel, SteelBlue);
+            fb.ImpostaColori(TanColor, DustyRose);
             fb.fattoreHover = 1.12f;
             fb.fattorePremuto = 1.06f;
         }
@@ -461,6 +570,8 @@ public class GameManager : MonoBehaviour
         GlowBottone.Applica(target.gameObject);
     }
 
+    // I pannelli "Sfondo" (Tutorial e banner FaiTu) sono Steel Blue: e' l'unico
+    // blu della palette e si stacca sia sul nero sia dietro ai bottoni Tan.
     private static void ColoraPannelli(GameObject gruppo)
     {
         if (gruppo == null) return;
@@ -468,34 +579,37 @@ public class GameManager : MonoBehaviour
         {
             if (t.name != "Sfondo") continue;
             Image img = t.GetComponent<Image>();
-            if (img != null) img.color = TanColor;
+            if (img != null) img.color = SteelBlue;
         }
     }
 
-    // I testi dei pannelli Tutorial/FaiTu (ora Tan, chiaro) vengono resi scuri per
-    // leggibilità: tutto tranne le label dei bottoni (già nere da StileBottone).
-    private static void ColoraTestiScuriPannelli(GameObject gruppo)
+    // I testi dei pannelli Tutorial/FaiTu (ora Steel Blue, un tono medio) vengono
+    // resi BIANCHI perche' e' l'unico colore con contrasto sufficiente (3.07:1).
+    // Esclude le label dei bottoni, gia' nere da StileBottone.
+    private static void ColoraTestiChiariPannelli(GameObject gruppo)
     {
         if (gruppo == null) return;
-        Color scuro = new Color(0.298f, 0.153f, 0.098f, 1f); // #4c2719 Espresso
         foreach (TextMeshProUGUI t in gruppo.GetComponentsInChildren<TextMeshProUGUI>(true))
         {
             if (t.GetComponentInParent<Button>() != null) continue;
-            t.color = scuro;
+            t.color = TestoChiaro;
         }
     }
 
-    // Porta i titoli "Testo Titolo" su Navajo (la calibrazione resta invariata).
+    // Porta i titoli "Testo Titolo" in bianco: stanno su fondi diversi (nero della
+    // camera o pannelli semitrasparenti) e il bianco e' l'unico colore leggibile
+    // su entrambi. Il metodo ETitolo normalizza il nome, quindi include anche i
+    // titoli con spazio finale.
     private static void ColoraTitoli(GameObject gruppo)
     {
         if (gruppo == null) return;
         foreach (TextMeshProUGUI t in gruppo.GetComponentsInChildren<TextMeshProUGUI>(true))
         {
-            if (t.name == "Testo Titolo") t.color = NavajoWhite;
+            if (ETitolo(t)) t.color = TestoChiaro;
         }
     }
 
-    // Sostituisce il font di TUTTE le scritte (anche inattive) con Inter, mantenendo
+    // Imposta il font di TUTTE le scritte (anche inattive): Raleway. Mantiene
     // l'ombra sulle label che l'avevano.
     private void ApplicaFontGlobale()
     {
@@ -505,8 +619,11 @@ public class GameManager : MonoBehaviour
         foreach (TextMeshProUGUI t in FindObjectsByType<TextMeshProUGUI>(FindObjectsInactive.Include, FindObjectsSortMode.None))
         {
             bool avevaOmbra = t.fontSharedMaterial != null && t.fontSharedMaterial.name.Contains("Drop Shadow");
+            bool eTitolo = ETitolo(t);
             t.font = fa;
-            if (avevaOmbra) ApplicaStileTesto(t);
+            // Il font e' unico: stile e ombra si riapplicano solo dove servivano
+            // gia', per non aggiungere ombre a testi che non le avevano.
+            if (avevaOmbra || eTitolo) ApplicaStileTesto(t);
         }
 
         foreach (TextMeshPro t in FindObjectsByType<TextMeshPro>(FindObjectsInactive.Include, FindObjectsSortMode.None))
@@ -531,6 +648,11 @@ public class GameManager : MonoBehaviour
                 {
                     RectTransform rt = (RectTransform)figlio;
                     rt.sizeDelta = new Vector2(460f, 230f);
+                    // "Genera Report Finale" scende sotto la posizione di scena
+                    // (y 250): sta piu' in basso per staccarlo dal pannello delle
+                    // istruzioni centrale, senza toccare "Torna al Menu".
+                    if (figlio.name == "GeneraReport")
+                        rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, 150f);
                     ApplicaStileTesto(figlio.GetComponentInChildren<TextMeshProUGUI>(true));
                 }
             }
@@ -769,7 +891,7 @@ public class GameManager : MonoBehaviour
                 if (!udpReceiver.BridgePronto)
                 {
                     Debug.Log("[TUTORIAL] Ponte MIDI non collegato dopo 30s: salto l'esempio.");
-                    if (tutorialText != null) tutorialText.text = "La tastiera non risponde: prova tu";
+                    if (tutorialText != null) tutorialText.text = $"<color=#{Hex(ErroreTutorial)}>La tastiera non risponde: prova tu</color>";
                     yield return new WaitForSeconds(1.5f);
                     esempioInCorso = false;
                     if (clearSceneInAttesa)
@@ -835,7 +957,7 @@ public class GameManager : MonoBehaviour
                 {
                     Debug.Log("[TUTORIAL] Bridge non conferma dopo " + TENTATIVI_MAX
                               + " tentativi: passo alla prova senza esempio.");
-                    if (tutorialText != null) tutorialText.text = "L'esempio non e' disponibile: prova tu";
+                    if (tutorialText != null) tutorialText.text = $"<color=#{Hex(ErroreTutorial)}>L'esempio non e' disponibile: prova tu</color>";
                     yield return new WaitForSeconds(1.2f);
                 }
             }
@@ -1144,7 +1266,10 @@ public class GameManager : MonoBehaviour
     private IEnumerator TransizioneSfidaCoroutine(int prossimaSfida, string testoNuovaSfida)
     {
         inTransizione = true;
-        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>COMPLETATO!</b></color>\n\nOttimo lavoro! Preparati per la prossima sfida...";
+        // Sopra il pannello Steel Blue il verde/rosso di prima nonavevano contrasto
+        // (1.29:1 e 1.12:1): restano bianchi in grassetto e a distinguerli basta
+        // la parola scritta.
+        if (tutorialText != null) tutorialText.text = $"<color=#{Hex(SuccessoTutorial)}><b>COMPLETATO!</b></color>\n\nOttimo lavoro! Preparati per la prossima sfida...";
 
         yield return new WaitForSeconds(2.5f);
 
@@ -1157,7 +1282,7 @@ public class GameManager : MonoBehaviour
     private IEnumerator TransizioneErroreCoroutine(string messaggioErrore, string testoSfidaDaRipristinare)
     {
         inTransizione = true;
-        if (tutorialText != null) tutorialText.text = $"<color=#e56b70><b>{messaggioErrore}</b></color>\n\nRileggi bene le istruzioni e riprova.";
+        if (tutorialText != null) tutorialText.text = $"<color=#{Hex(ErroreTutorial)}><b>{messaggioErrore}</b></color>\n\nRileggi bene le istruzioni e riprova.";
 
         yield return new WaitForSeconds(2.0f);
 
@@ -1175,7 +1300,7 @@ public class GameManager : MonoBehaviour
         primaNotaStaccato = -1;
         noteScalaCrescente = 0;
         tempoUltimaNotaScala = -1f;
-        if (tutorialText != null) tutorialText.text = "<color=#a4af69><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men\u00F9...";
+        if (tutorialText != null) tutorialText.text = $"<color=#{Hex(SuccessoTutorial)}><b>ECCELLENTE, TUTORIAL COMPLETATO!</b></color>\n \n Ora verrai reindirizzato al men\u00F9...";
 
         yield return new WaitForSeconds(3.5f);
         AttivaMenu();

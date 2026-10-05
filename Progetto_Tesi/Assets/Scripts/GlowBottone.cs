@@ -17,7 +17,9 @@ public class GlowBottone : MonoBehaviour, IPointerEnterHandler, IPointerExitHand
 {
     public enum FormaGlow { Rettangolare, Circolare }
 
-    [SerializeField] private Color colore = new Color(0.4275f, 0.5961f, 0.7294f, 1f); // #6d98ba Steel Blue
+    // Il glow usa il blu Steel Blue della palette: sui pulsanti Tan e' nettamente
+    // visibile (il nero della camera e' l'unico altro fondo reale qui).
+    [SerializeField] private Color colore = GameManager.GlowColore;
     [Range(0f, 1f)] [SerializeField] private float alphaRiposo = 0.40f;
     [Range(0f, 1f)] [SerializeField] private float alphaHover = 0.90f;
     [SerializeField] private float velocitaTransizione = 7f;

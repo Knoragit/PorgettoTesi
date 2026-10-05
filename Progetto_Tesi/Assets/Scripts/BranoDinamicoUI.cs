@@ -13,8 +13,10 @@ public class BranoDinamicoUI : MonoBehaviour
         TextMeshProUGUI label = GetComponentInChildren<TextMeshProUGUI>();
         if (label != null)
         {
-            string prefix = nuovoRisultato ? "<color=#a4af69><b>■ Scaricato: </b></color>" : "";
-            label.text = prefix + titolo + "\n<size=80%><color=#ffe0b5>" + autore + "</color></size>";
+            string prefix = nuovoRisultato ? $"<color=#{GameManager.Hex(GameManager.Successo)}><b>■ Scaricato: </b></color>" : "";
+            // L'autore sta su una riga Tan: serve un tono scuro. Inchiostro e' la
+            // versione notte dello stesso blu dei pannelli (6.61:1 sul Tan).
+            label.text = prefix + titolo + $"\n<size=70%><color=#{GameManager.Hex(GameManager.Inchiostro)}>" + autore + "</color></size>";
         }
 
         Button btn = GetComponent<Button>();
