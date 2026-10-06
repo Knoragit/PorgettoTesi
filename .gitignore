@@ -126,3 +126,5 @@ nora_database.db
 **/[Aa]ssets/Resources/PerformanceTestRun*
 # Sessioni di gioco (generati localmente)
 Sessione_*/
+/Sessioni/
+/Canzoni/

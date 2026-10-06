@@ -3,6 +3,8 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using UnityEngine.Events;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.EventSystems;
 
@@ -65,6 +67,24 @@ public class GameManager : MonoBehaviour
     private bool inTransizione = false;
     private Coroutine faiTuBannerCoroutine;
     private Coroutine reportFeedbackCoroutine;
+    // Pannello di spiegazione mostrato all'ingresso di Tutorial/Osservatore/Seguimi.
+    // Nato a runtime (il banner FaiTu vive solo nella scena) e con lo stesso
+    // aspetto: Steel Blue, sprite arrotondata, ombra e testo bianco.
+    private GameObject bannerModalita;
+    private TextMeshProUGUI bannerModalitaTesto;
+    private Coroutine bannerModalitaCoroutine;
+    // Visualizzatore PDF del report: creato a runtime sotto il Canvas, con le
+    // pagine salvate in PNG dal bridge nella cartella sessione (app e bridge
+    // girano sulla stessa macchina via Link). Vive anche lui fuori dai gruppi,
+    // perche' i gruppi Osservatore/Seguimi sono in scala 4.
+    private GameObject viewerReport;
+    private RawImage paginaReportImmagine;
+    private List<Texture2D> pagineReport = new List<Texture2D>();
+    private int paginaReportCorrente = 0;
+    // Bottoni del viewer catturati al momento della creazione: servono per nasconderli
+    // quando non servono (Indietro sulla prima pagina, Avanti sull'ultima).
+    private Button bottoneIndietroReport;
+    private Button bottoneAvantiReport;
 
     // Sprite e materiale condivisi da TUTTI i bottoni (forma e aspetto uniformi).
     // Vengono ricavati dai bottoni statici della scena (menu/FaiTu) che usano la
@@ -335,6 +355,20 @@ public class GameManager : MonoBehaviour
             TextMeshProUGUI reportText = faiTuReportMessaggio.GetComponent<TextMeshProUGUI>();
             if (reportText != null)
                 reportText.text = "Report Generato!\n\nLo trovi nella cartella Sessioni";
+        }
+
+        // Il banner FaiTu della scena ha il testo a y=65 (400x200): lo riequilibro
+        // verso il centro (y=20) a runtime, come quelli creati in codice, senza mai
+        // modificare la scena. E' il figlio TextMeshPro del banner.
+        if (faiTuBannerMessaggio != null)
+        {
+            TextMeshProUGUI bannerText = faiTuBannerMessaggio.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (bannerText != null)
+            {
+                RectTransform rtBanner = bannerText.transform as RectTransform;
+                if (rtBanner != null)
+                    rtBanner.anchoredPosition = new Vector2(rtBanner.anchoredPosition.x, 20f);
+            }
         }
     }
 
@@ -716,6 +750,8 @@ public class GameManager : MonoBehaviour
 
         if (faiTuBannerCoroutine != null) StopCoroutine(faiTuBannerCoroutine);
         if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
+        NascondiBannerModalita();
+        NascondiViewerReport();
 
         if (faiTuReportMessaggio != null) faiTuReportMessaggio.SetActive(false);
 
@@ -728,12 +764,37 @@ public class GameManager : MonoBehaviour
 
         statoAttuale = nuovoStato;
 
-        // Visibilità pannelli
+        // Visibilità pannelli. Tutorial/Osservatore/Seguimi passano da
+        // MostraBannerModalitaEAttiva: il gruppo resta spento per i 5s del pannello
+        // di spiegazione e si accende dopo. Menu e FaiTu si attivano subito come
+        // prima (il banner di FaiTu e' gia' gestito sotto).
         if (calibrationGroup != null) calibrationGroup.SetActive(statoAttuale == AppState.Onboarding);
         if (menuGroup != null) menuGroup.SetActive(statoAttuale == AppState.Menu);
-        if (tutorialGroup != null) tutorialGroup.SetActive(statoAttuale == AppState.Tutorial);
-        if (observerGroup != null) observerGroup.SetActive(statoAttuale == AppState.Osservatore);
-        if (seguimiGroup != null) seguimiGroup.SetActive(statoAttuale == AppState.Seguimi);
+
+        bool introduzioneConBanner =
+            statoAttuale == AppState.Tutorial ||
+            statoAttuale == AppState.Osservatore ||
+            statoAttuale == AppState.Seguimi;
+
+        GameObject gruppoDaAttivare = null;
+        if (statoAttuale == AppState.Tutorial) gruppoDaAttivare = tutorialGroup;
+        else if (statoAttuale == AppState.Osservatore) gruppoDaAttivare = observerGroup;
+        else if (statoAttuale == AppState.Seguimi) gruppoDaAttivare = seguimiGroup;
+
+        // Ogni gruppo diverso da quello corrente va spento, SEMPRE. Questa pulizia
+        // era implicita in tre if separati (tutorial/observer/seguimi): quando ho
+        // introdotto i pannelli e' rimasta solo l'accensione post-banner, e uscendo
+        // da una modalita' verso il menu il gruppo restava acceso sopra il menu.
+        // Il && !introduzioneConBanner tiene spento anche il gruppo corrente per i
+        // suoi 5s di pannello.
+        if (tutorialGroup != null) tutorialGroup.SetActive(statoAttuale == AppState.Tutorial && !introduzioneConBanner);
+        if (observerGroup != null) observerGroup.SetActive(statoAttuale == AppState.Osservatore && !introduzioneConBanner);
+        if (seguimiGroup != null) seguimiGroup.SetActive(statoAttuale == AppState.Seguimi && !introduzioneConBanner);
+
+        if (introduzioneConBanner)
+        {
+            bannerModalitaCoroutine = StartCoroutine(MostraBannerModalitaEAttiva(statoAttuale, gruppoDaAttivare));
+        }
 
         if (faiTuGroup != null)
         {
@@ -745,6 +806,291 @@ public class GameManager : MonoBehaviour
                 faiTuBannerCoroutine = StartCoroutine(MostraBannerFaiTuTemporaneo());
             }
         }
+    }
+
+    // --- PANNELLO DI SPIEGAZIONE ALL'INGRESSO DI UNA MODALITA' ---
+    // Un solo pannello, creato a runtime e riusato da tutte le modalita': duplicarlo
+    // per ogni stato creerebbe N oggetti con lo stesso aspetto da mantenere.
+    // Vive sotto il Canvas e NON dentro il gruppo della modalita', perche' i gruppi
+    // Osservatore e Seguimi hanno localScale 4 (quello FaiTu e' a 1): messo li' il
+    // pannello uscirebbe quattro volte piu' grande.
+    private void CreaBannerModalita()
+    {
+        if (bannerModalita != null) return;
+
+        // Il Canvas: preferisco il campo esplicito, altrimenti risalgo da un gruppo
+        // noto. Senza canvas non c'e' dove appenderlo e non viene creato nulla.
+        Transform contenitore = null;
+        foreach (GameObject gruppo in new[] { menuGroup, faiTuGroup, tutorialGroup })
+        {
+            if (gruppo != null && gruppo.transform.parent != null) { contenitore = gruppo.transform.parent; break; }
+        }
+        if (contenitore == null) return;
+
+        // Copia i valori reali del banner FaiTu della scena (GruppoFaiTu/FaiTuBanner):
+        // sfondo con scala 5,4,2 e testo 400x200 a y=20. Stessi numeri = stesso aspetto.
+        GameObject p = new GameObject("BannerModalita", typeof(RectTransform), typeof(Image));
+        p.transform.SetParent(contenitore, false);
+
+        RectTransform prt = (RectTransform)p.transform;
+        prt.anchorMin = new Vector2(0.5f, 0.5f);
+        prt.anchorMax = new Vector2(0.5f, 0.5f);
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.anchoredPosition = Vector2.zero;
+
+        GameObject sfondo = new GameObject("Sfondo", typeof(RectTransform), typeof(Image));
+        sfondo.transform.SetParent(p.transform, false);
+        RectTransform srt = (RectTransform)sfondo.transform;
+        srt.anchorMin = Vector2.zero;
+        srt.anchorMax = Vector2.one;
+        srt.offsetMin = Vector2.zero;
+        srt.offsetMax = Vector2.zero;
+        srt.localScale = new Vector3(5f, 4f, 2f);
+
+        Image img = sfondo.GetComponent<Image>();
+        img.color = SteelBlue;
+        img.raycastTarget = false;
+        if (SpriteArrotondato != null)
+        {
+            img.sprite = SpriteArrotondato;
+            img.type = Image.Type.Sliced;
+        }
+        ApplicaPenombra(img.gameObject);
+
+        GameObject goTesto = new GameObject("IstruzioneModalita", typeof(RectTransform));
+        goTesto.transform.SetParent(p.transform, false);
+        RectTransform trt = (RectTransform)goTesto.transform;
+        trt.anchorMin = new Vector2(0.5f, 0.5f);
+        trt.anchorMax = new Vector2(0.5f, 0.5f);
+        trt.pivot = new Vector2(0.5f, 0.5f);
+        trt.anchoredPosition = new Vector2(0f, 20f);
+        trt.sizeDelta = new Vector2(400f, 200f);
+
+        TextMeshProUGUI testo = goTesto.AddComponent<TextMeshProUGUI>();
+        // Font: quello dell'app, con fallback su quello del banner FaiTu della scena.
+        if (FontApp != null) testo.font = FontApp;
+        else if (faiTuBannerMessaggio != null)
+        {
+            TextMeshProUGUI riferimento = faiTuBannerMessaggio.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (riferimento != null) testo.font = riferimento.font;
+        }
+        // 40 = fontSize reale del banner FaiTu nella scena (verificato in
+        // SampleScene.unity, non stimato): stesse dimensioni del pannello che
+        // l'utente ha gia' visto in Fai Tu.
+        testo.fontSize = 40f;
+        testo.fontStyle = FontStyles.Bold;
+        testo.alignment = TextAlignmentOptions.Center;
+        testo.color = TestoChiaro;
+        testo.raycastTarget = false;
+
+        bannerModalitaTesto = testo;
+        bannerModalita = p;
+        // Inizialmente spento: CompareSoloIlBannerModalita lo accende per 5s.
+        p.SetActive(false);
+
+        // Ultimo figlio del contenitore: i pannelli dei gruppi devono restare sotto.
+        p.transform.SetAsLastSibling();
+    }
+
+    // --- VISUALIZZATORE DEL REPORT PDF ---
+    // Un pannello creato a runtime sotto il Canvas, come BannerModalita: vive fuori
+    // dai gruppi, che sono in scale diverse (FaiTu x1, Osservatore/Seguimi x4).
+    // Mostra una pagina PNG del report alla volta con Avanti/Indietro, e Chiudi
+    // sotto i due pulsanti, come richiesto.
+    private void CreaViewerReport()
+    {
+        if (viewerReport != null) return;
+
+        Transform contenitore = null;
+        foreach (GameObject gruppo in new[] { menuGroup, faiTuGroup, tutorialGroup })
+        {
+            if (gruppo != null && gruppo.transform.parent != null) { contenitore = gruppo.transform.parent; break; }
+        }
+        if (contenitore == null) return;
+
+        // Pannello esterno: sfondo scuro che copre tutto il canvas dietro le pagine.
+        GameObject p = new GameObject("ViewerReportPDF", typeof(RectTransform), typeof(Image));
+        p.transform.SetParent(contenitore, false);
+
+        RectTransform prt = (RectTransform)p.transform;
+        prt.anchorMin = Vector2.zero;
+        prt.anchorMax = Vector2.one;
+        prt.offsetMin = Vector2.zero;
+        prt.offsetMax = Vector2.zero;
+
+        Image schermo = p.GetComponent<Image>();
+        schermo.color = new Color(0f, 0f, 0f, 0.85f);
+        // True: il fondale scuro copre il canvas e blocca i click sugli elementi
+        // dietro (i bottoni di FaiTu restano attivi ma non raggiungibili, pattern
+        // modale). I bottoni del viewer sono figli e ricevono i loro click.
+        schermo.raycastTarget = true;
+
+        // Sfondo del pannello: Steel Blue a tutta area, come gli altri della UI.
+        GameObject sfondo = new GameObject("Sfondo", typeof(RectTransform), typeof(Image));
+        sfondo.transform.SetParent(p.transform, false);
+        RectTransform srt = (RectTransform)sfondo.transform;
+        srt.anchorMin = new Vector2(0.5f, 0.5f);
+        srt.anchorMax = new Vector2(0.5f, 0.5f);
+        srt.pivot = new Vector2(0.5f, 0.5f);
+        srt.anchoredPosition = Vector2.zero;
+        srt.sizeDelta = new Vector2(700f, 980f);
+
+        Image img = sfondo.GetComponent<Image>();
+        img.color = SteelBlue;
+        img.raycastTarget = false;
+        if (SpriteArrotondato != null)
+        {
+            img.sprite = SpriteArrotondato;
+            img.type = Image.Type.Sliced;
+        }
+        ApplicaPenombra(img.gameObject);
+
+        // Immagine della pagina corrente del report. Le pagine PNG del bridge sono
+        // sempre 8.5x11 (1020x1320 px a 120dpi): imposto il rect con lo stesso
+        // rapporto (600 x ~777) e niente AspectRatioFitter, perche' con FitInParent
+        // su parent a tutto canvas la pagina si estendeva su tutto lo schermo e
+        // copriva i pulsanti. La pagina resta a meta'-alta, con i pulsanti sotto.
+        GameObject goImmagine = new GameObject("PaginaReport", typeof(RectTransform), typeof(RawImage));
+        goImmagine.transform.SetParent(p.transform, false);
+        RectTransform igt = (RectTransform)goImmagine.transform;
+        igt.anchorMin = new Vector2(0.5f, 0.5f);
+        igt.anchorMax = new Vector2(0.5f, 0.5f);
+        igt.pivot = new Vector2(0.5f, 0.5f);
+        igt.anchoredPosition = new Vector2(0f, 85f);
+        igt.sizeDelta = new Vector2(600f, 777f);
+
+        paginaReportImmagine = goImmagine.GetComponent<RawImage>();
+        paginaReportImmagine.color = Color.white;
+        paginaReportImmagine.raycastTarget = false;
+        paginaReportImmagine.texture = null;
+
+        // Avanti e Indietro affiancati subito sotto la pagina, Chiudi sotto.
+        bottoneIndietroReport = CreaBottoneViewer(p.transform, "Indietro", new Vector2(-155f, -355f), new Vector2(280f, 90f), 48f, IndietroPaginaReport);
+        bottoneAvantiReport = CreaBottoneViewer(p.transform, "Avanti", new Vector2(155f, -355f), new Vector2(280f, 90f), 48f, AvantiPaginaReport);
+        CreaBottoneViewer(p.transform, "Chiudi", new Vector2(0f, -440f), new Vector2(600f, 80f), 48f, ChiudiViewerReport);
+
+        viewerReport = p;
+        // Inizialmente spento: ReportPronto lo accende quando le pagine sono pronte.
+        p.SetActive(false);
+
+        // Ultimo figlio del contenitore: sta sopra a tutto.
+        p.transform.SetAsLastSibling();
+    }
+
+    // Bottone del viewer creato a runtime, con lo stesso aspetto degli altri
+    // bottoni della UI (Tan, penombra, glow, stile FaiTu).
+    private Button CreaBottoneViewer(Transform parent, string testo, Vector2 posizione, Vector2 dimensione, float fontSize, UnityAction onClick)
+    {
+        GameObject bottoneGO = new GameObject("Bottone " + testo, typeof(RectTransform));
+        bottoneGO.transform.SetParent(parent, false);
+
+        RectTransform rt = (RectTransform)bottoneGO.transform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = posizione;
+        rt.sizeDelta = dimensione;
+
+        Image sfondo = bottoneGO.AddComponent<Image>();
+        sfondo.sprite = SpriteArrotondato != null ? SpriteArrotondato : CreaSpriteBianco();
+        sfondo.type = Image.Type.Sliced;
+
+        Button bottone = bottoneGO.AddComponent<Button>();
+        bottone.targetGraphic = sfondo;
+        bottone.onClick.AddListener(onClick);
+
+        GameObject goLabel = new GameObject("Testo", typeof(RectTransform));
+        goLabel.transform.SetParent(bottoneGO.transform, false);
+
+        RectTransform lrt = (RectTransform)goLabel.transform;
+        lrt.anchorMin = Vector2.zero;
+        lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = Vector2.zero;
+        lrt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI label = goLabel.AddComponent<TextMeshProUGUI>();
+        label.text = testo;
+        label.font = FontApp != null
+            ? FontApp
+            : (TMP_Settings.defaultFontAsset != null
+                ? TMP_Settings.defaultFontAsset
+                : Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF"));
+        label.fontSize = fontSize;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = Color.black;
+        label.raycastTarget = true;
+
+        StileBottone(bottoneGO.transform, TanColor, DustyRose, DustyRose, Color.black);
+        return bottone;
+    }
+
+    // Testo di spiegazione per modalita'. FaiTu non compare: ha gia' il suo banner.
+    private static string TestoSpiegazioneModalita(AppState stato)
+    {
+        switch (stato)
+        {
+            case AppState.Tutorial:
+                return "Esegui le diverse sfide per comprendere i concetti legati all'espressivita'.";
+            case AppState.Osservatore:
+                return "Scegli o Cerca la canzone che preferisci per vederne l'esecuzione.";
+            case AppState.Seguimi:
+                return "Scegli o Cerca la canzone che preferisci da eseguire seguendo le colonne verdi!";
+            default:
+                return null;
+        }
+    }
+
+    // Mostra il pannello per 5 secondi e poi attiva il gruppo della modalita', cosi'
+    // l'utente legge prima la spiegazione e poi vede il resto (menu o pannelli
+    // tutorial). Il gruppo resta disattivato per tutta la durata.
+    private IEnumerator MostraBannerModalitaEAttiva(AppState stato, GameObject gruppo)
+    {
+        CreaBannerModalita();
+
+        string testo = TestoSpiegazioneModalita(stato);
+        if (bannerModalita != null && testo != null)
+        {
+            if (bannerModalitaTesto != null) bannerModalitaTesto.text = testo;
+            bannerModalita.SetActive(true);
+            yield return new WaitForSeconds(5.0f);
+            bannerModalita.SetActive(false);
+        }
+
+        // Controllo difensivo: se nel frattempo l'utente e' tornato al menu o ha
+        // cambiato modalita', non riaccendere il gruppo DOPO che CambiaStato l'ha
+        // spento. Nota: non serve guardare bannerModalita.activeSelf, perche' la
+        // riga sopra lo spegne di proposito e renderebbe la condizione sempre vera.
+        // Il caso dell'uscita durante i 5s e' gia' coperto: NascondiBannerModalita
+        // chiama StopCoroutine e uccide questa coroutine prima che arrivi qui.
+        if (statoAttuale != stato) yield break;
+
+        if (gruppo != null) gruppo.SetActive(true);
+    }
+
+    // Il pannello sparisce e resta spento: chiamata a ogni cambio di stato, cosi'
+    // leaving una modalita' durante i 5s non lascia il pannello a schermo.
+    private void NascondiBannerModalita()
+    {
+        if (bannerModalitaCoroutine != null)
+        {
+            StopCoroutine(bannerModalitaCoroutine);
+            bannerModalitaCoroutine = null;
+        }
+        if (bannerModalita != null) bannerModalita.SetActive(false);
+    }
+
+    // Usa lo stesso pannello Steel Blue arrotondato con ombra degli intro per i
+    // messaggi del report ("Generazione report in corso...", "Lo trovi sulla
+    // cartella Sessioni..."), come richiesto: stessa posizione, grandezza e colori
+    // di scritte e pannello. Resta acceso finche' qualcuno lo nasconde.
+    private void MostraBannerReport(string testo)
+    {
+        CreaBannerModalita();
+        if (bannerModalita == null) return;
+        if (bannerModalitaTesto != null) bannerModalitaTesto.text = testo;
+        bannerModalita.SetActive(true);
+        bannerModalita.transform.SetAsLastSibling();
     }
 
     private IEnumerator MostraBannerFaiTuTemporaneo()
@@ -864,6 +1210,11 @@ public class GameManager : MonoBehaviour
 
         try
         {
+            // Il gruppo Tutorial resta spento per i 5s del pannello di spiegazione:
+            // aspettiamo che finisca prima di scrivere "SFIDA n" e di lanciare
+            // l'esempio, altrimenti l'utente legge entrambi insieme.
+            if (bannerModalitaCoroutine != null) yield return bannerModalitaCoroutine;
+
             if (tutorialText != null)
             {
                 tutorialText.text = "SFIDA " + sfida + "\n" + TitoloSfida(sfida)
@@ -1010,23 +1361,160 @@ public class GameManager : MonoBehaviour
 
     public void GeneraReportPDF()
     {
+        NascondiViewerReport();
         if (udpReceiver != null) udpReceiver.InviaComandoGeneraReport();
 
         if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
-        reportFeedbackCoroutine = StartCoroutine(MostraReportFeedbackTemporaneo());
+        reportFeedbackCoroutine = StartCoroutine(MostraInCorsoPoiTimeout());
     }
 
-    private IEnumerator MostraReportFeedbackTemporaneo()
+    // Mentre Python genera il PDF (e i PNG delle pagine) resta fermo un messaggio
+    // di attesa. Se il report non arriva (errore del bridge), dopo il timeout si
+    // comunica e si torna al Menu invece di restare in attesa per sempre.
+    private IEnumerator MostraInCorsoPoiTimeout()
     {
-        if (faiTuReportMessaggio != null) faiTuReportMessaggio.SetActive(true);
+        MostraBannerReport("Generazione report in corso...");
 
-        // Attesa visualizzazione del messaggio di conferma
+        yield return new WaitForSeconds(120f);
+
+        MostraBannerReport("Report non disponibile. Riprova.");
         yield return new WaitForSeconds(3.5f);
 
-        if (faiTuReportMessaggio != null) faiTuReportMessaggio.SetActive(false);
+        NascondiBannerModalita();
 
-        // Ritorno automatico al Menu
-        AttivaMenu();
+        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+    }
+
+    // Chiamato da UdpReceiver quando il bridge conferma ("report_ready") che il
+    // PDF e le pagine PNG sono pronti nella cartella sessione.
+    public void ReportPronto(string cartella, int pagine)
+    {
+        if (reportFeedbackCoroutine != null)
+        {
+            StopCoroutine(reportFeedbackCoroutine);
+            reportFeedbackCoroutine = null;
+        }
+        NascondiBannerModalita();
+
+        // Il report parte da FaiTu: se nel frattempo si e' cambiata modalita',
+        // il viewer non va mostrato.
+        if (statoAttuale != AppState.FaiTu) return;
+
+        CaricaPagineReport(cartella, pagine);
+        if (pagineReport.Count == 0)
+        {
+            MostraMessaggioReportNonDisponibile();
+            return;
+        }
+
+        CreaViewerReport();
+        if (viewerReport == null) return;
+        paginaReportCorrente = 0;
+        AggiornaPaginaReport();
+        viewerReport.SetActive(true);
+        viewerReport.transform.SetAsLastSibling();
+    }
+
+    private void MostraMessaggioReportNonDisponibile()
+    {
+        if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
+        reportFeedbackCoroutine = StartCoroutine(ReportNonDisponibilePoiMenu());
+    }
+
+    private IEnumerator ReportNonDisponibilePoiMenu()
+    {
+        MostraBannerReport("Report non trovato.\nCerca Report_Completo_Nora.pdf nella cartella Sessione...");
+        yield return new WaitForSeconds(3.5f);
+        NascondiBannerModalita();
+        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+    }
+
+    private void CaricaPagineReport(string cartella, int pagine)
+    {
+        ScaricaPagineReport();
+        if (string.IsNullOrEmpty(cartella) || pagine <= 0) return;
+
+        for (int i = 1; i <= pagine; i++)
+        {
+            string percorso = Path.Combine(cartella, $"pagina_{i}.png");
+            if (!File.Exists(percorso)) continue;
+            byte[] bytes = File.ReadAllBytes(percorso);
+            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (tex.LoadImage(bytes))
+            {
+                tex.filterMode = FilterMode.Bilinear;
+                tex.wrapMode = TextureWrapMode.Clamp;
+                pagineReport.Add(tex);
+            }
+            else
+            {
+                Destroy(tex);
+            }
+        }
+    }
+
+    private void ScaricaPagineReport()
+    {
+        foreach (Texture2D tex in pagineReport)
+        {
+            if (tex != null) Destroy(tex);
+        }
+        pagineReport.Clear();
+    }
+
+    private void AvantiPaginaReport()
+    {
+        if (pagineReport.Count == 0) return;
+        if (paginaReportCorrente < pagineReport.Count - 1)
+        {
+            paginaReportCorrente++;
+            AggiornaPaginaReport();
+        }
+    }
+
+    private void IndietroPaginaReport()
+    {
+        if (paginaReportCorrente > 0)
+        {
+            paginaReportCorrente--;
+            AggiornaPaginaReport();
+        }
+    }
+
+    private void AggiornaPaginaReport()
+    {
+        if (paginaReportImmagine == null || pagineReport.Count == 0) return;
+        paginaReportImmagine.texture = pagineReport[paginaReportCorrente];
+
+        // Simmetrici agli estremi: Indietro sparisce sulla prima pagina, Avanti
+        // sull'ultima (chiesto e confermato per il PDF finale).
+        if (bottoneIndietroReport != null)
+            bottoneIndietroReport.gameObject.SetActive(paginaReportCorrente > 0);
+        if (bottoneAvantiReport != null)
+            bottoneAvantiReport.gameObject.SetActive(paginaReportCorrente < pagineReport.Count - 1);
+    }
+
+    private void ChiudiViewerReport()
+    {
+        NascondiViewerReport();
+
+        if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
+        reportFeedbackCoroutine = StartCoroutine(MostraMessaggioReportTornaMenu());
+    }
+
+    // Su Chiudi: la scritta di conferma, poi il ritorno automatico al Menu.
+    private IEnumerator MostraMessaggioReportTornaMenu()
+    {
+        MostraBannerReport("Lo trovi sulla cartella Sessioni insieme alla registrazione della tua esecuzione.");
+        yield return new WaitForSeconds(3.5f);
+        NascondiBannerModalita();
+        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+    }
+
+    private void NascondiViewerReport()
+    {
+        if (viewerReport != null) viewerReport.SetActive(false);
+        ScaricaPagineReport();
     }
 
     private void CreaBottoneHomeTutorial()

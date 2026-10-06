@@ -1077,6 +1077,8 @@ def generate_unified_report():
 
     try:
         with PdfPages(pdf_filepath) as pdf:
+            page_number = 0
+
             fig1 = plt.figure(figsize=(8.5, 11))
             fig1.text(0.5, 0.958, "REPORT · MODALITÀ FAI TU", ha='center', va='center', fontsize=15,
                       fontweight='bold', bbox=dict(boxstyle='round,pad=0.45', facecolor='#f8f9fa', edgecolor='#0288d1', linewidth=1.4))
@@ -1187,6 +1189,8 @@ def generate_unified_report():
                 ax.text(0.5, 0.5, "Nessuna nota registrata nella modalità Fai Tu.", horizontalalignment='center', fontsize=12)
 
             pdf.savefig(fig1)
+            page_number += 1
+            fig1.savefig(os.path.join(session_dir, f"pagina_{page_number}.png"), dpi=120)
             plt.close(fig1)
 
             valid_sessions = [s for s in history_follow_sessions if len(s.get("user_notes", [])) > 0]
@@ -1251,6 +1255,8 @@ def generate_unified_report():
                 ax_user.grid(True, linestyle='--', alpha=0.3)
 
                 pdf.savefig(fig_crom)
+                page_number += 1
+                fig_crom.savefig(os.path.join(session_dir, f"pagina_{page_number}.png"), dpi=120)
                 plt.close(fig_crom)
 
                 # ═══ PAGINA 2: RADAR + TESTO + GUIDA ═══
@@ -1386,10 +1392,12 @@ def generate_unified_report():
                                         edgecolor='#c5d0d8', alpha=0.9))
 
                 pdf.savefig(fig_analisi)
+                page_number += 1
+                fig_analisi.savefig(os.path.join(session_dir, f"pagina_{page_number}.png"), dpi=120)
                 plt.close(fig_analisi)
 
         print(f"[REPORT OK] Generato correttamente in: {session_dir}")
-        send_to_unity({"action": "report_ready", "file": pdf_filepath, "folder": session_dir})
+        send_to_unity({"action": "report_ready", "file": pdf_filepath, "folder": session_dir, "pages": page_number})
 
     except Exception as e:
         print(f"[ERRORE PDF] {e}")

@@ -249,7 +249,9 @@ public class UdpReceiver : MonoBehaviour
                     {
                         if (json.action == "report_ready")
                         {
-                            UnityEngine.Debug.Log($"<color=green>[REPORT PDF PRONTO]</color> File creato: {json.file}");
+                            UnityEngine.Debug.Log($"<color=green>[REPORT PDF PRONTO]</color> File creato: {json.file}, pagine: {json.pages}");
+                            if (gameManager != null)
+                                gameManager.ReportPronto(json.folder, json.pages);
                         }
                         else if (json.action == "expect_notes")
                         {
@@ -579,6 +581,8 @@ public class UdpReceiver : MonoBehaviour
         public string filename;
         public string title;
         public string artist;
+        public string folder;
+        public int pages;
         public SongData[] songs;
         public MidiData() { }
     }
