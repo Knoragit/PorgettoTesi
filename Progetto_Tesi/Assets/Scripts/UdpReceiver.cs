@@ -37,6 +37,12 @@ public class UdpReceiver : MonoBehaviour
 
     public bool BridgePronto => bridgePronto;
 
+    // Emesso SOLO quando il bridge passa da non-pronto a pronto (il bridge risponde
+    // "bridge_ready" anche a ogni ping, quindi senza il guard sulla transizione
+    // l'evento si ripeterebbe in continuazione). Chi è interessato (GameManager)
+    // ne usa la ricezione per rinnovare comandi che sono caduti prima della prontezza.
+    public event System.Action BridgeProntoRicevuto;
+
     void Awake()
     {
         AvviaScriptPython();
@@ -91,6 +97,7 @@ public class UdpReceiver : MonoBehaviour
         if (!bridgePronto)
         {
             UnityEngine.Debug.Log("<color=green>[BRIDGE]</color> Ponte pronto: tastiera collegata, i comandi vengono ricevuti.");
+            if (BridgeProntoRicevuto != null) BridgeProntoRicevuto();
         }
         bridgePronto = true;
         pingNonRisposti = 0;
@@ -303,6 +310,12 @@ public class UdpReceiver : MonoBehaviour
                             // e' una nota e non deve generare nessuna colonna.
                             RiceviBridgeReady();
                         }
+                        else if (json.action == "report_status")
+                        {
+                            // Risposta a "get_report_status": abilita o spegne il
+                            // bottone "Genera Report" del menu a seconda del materiale.
+                            if (gameManager != null) gameManager.StatoReportRicevuto(json.has_material);
+                        }
                         else
                         {
                             // Qui entreranno solo "press" e "release"
@@ -419,6 +432,12 @@ public class UdpReceiver : MonoBehaviour
     public void InviaComandoGeneraReport()
     {
         string json = "{\"action\":\"generate_report\"}";
+        InviaJsonAPython(json);
+    }
+
+    public void InviaComandoRichiediStatoReport()
+    {
+        string json = "{\"action\":\"get_report_status\"}";
         InviaJsonAPython(json);
     }
 
@@ -583,6 +602,7 @@ public class UdpReceiver : MonoBehaviour
         public string artist;
         public string folder;
         public int pages;
+        public bool has_material;
         public SongData[] songs;
         public MidiData() { }
     }

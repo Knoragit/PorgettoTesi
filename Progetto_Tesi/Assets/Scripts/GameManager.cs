@@ -86,6 +86,12 @@ public class GameManager : MonoBehaviour
     private Button bottoneIndietroReport;
     private Button bottoneAvantiReport;
 
+    // "Genera Report" vive ora nel menu (spostato a runtime da GruppoFaiTu) e resta
+    // spento finche' il bridge non confirma che c'e' materiale (note Fai Tu o
+    // esecuzioni Seguimi registrate).
+    private Button bottoneGeneraReport;
+    private bool reportDisponibile = false;
+
     // Sprite e materiale condivisi da TUTTI i bottoni (forma e aspetto uniformi).
     // Vengono ricavati dai bottoni statici della scena (menu/FaiTu) che usano la
     // sprite UI arrotondata built-in e il materiale di testo con ombra.
@@ -322,7 +328,12 @@ public class GameManager : MonoBehaviour
     {
         Application.targetFrameRate = 72;
         udpReceiver = FindFirstObjectByType<UdpReceiver>();
+        // Se il bridge si dichiara pronto mentre siamo gia' nel menu (es. il primo
+        // "get_report_status" all'avvio era caduto pre-prontezza), rivalidiamo il
+        // bottone "Genera Report" senza dover uscire e rientrare nel menu.
+        if (udpReceiver != null) udpReceiver.BridgeProntoRicevuto += OnBridgePronto;
         CreaBottoneHomeTutorial();
+        SpostaGeneraReportInMenu();
         IngrandisciBottoniUI();
         SistemaTestiUI();
 
@@ -331,6 +342,18 @@ public class GameManager : MonoBehaviour
         raggioGO.AddComponent<RaggioPuntatore>();
 
         StartCoroutine(UniformaBottoniTornaDopoFrame());
+    }
+
+    private void OnDestroy()
+    {
+        if (udpReceiver != null) udpReceiver.BridgeProntoRicevuto -= OnBridgePronto;
+    }
+
+    private void OnBridgePronto()
+    {
+        if (statoAttuale != AppState.Menu || udpReceiver == null) return;
+        ApplicaAspettoGeneraReport();
+        udpReceiver.InviaComandoRichiediStatoReport();
     }
 
     private void SistemaTestiUI()
@@ -460,8 +483,8 @@ public class GameManager : MonoBehaviour
         StileBottone(TrovaFiglio(menuGroup, "Bottone Seguimi"), TanColor, DustyRose, DustyRose, Color.black);
         StileBottone(TrovaFiglio(menuGroup, "Bottone Fai Tu"), TanColor, DustyRose, DustyRose, Color.black);
         StileBottone(TrovaFiglio(menuGroup, "BottoneRiancora"), TanColor, DustyRose, DustyRose, Color.black);
+        StileBottone(TrovaFiglio(menuGroup, "GeneraReport"), TanColor, DustyRose, DustyRose, Color.black);
         StileBottone(TrovaFiglio(faiTuGroup, "TornaAlMen\u00F9"), TanColor, DustyRose, DustyRose, Color.black);
-        StileBottone(TrovaFiglio(faiTuGroup, "GeneraReport"), TanColor, DustyRose, DustyRose, Color.black);
         StileBottone(TrovaFiglio(tutorialGroup, "TornaAlMenu"), TanColor, DustyRose, DustyRose, Color.black);
 
         // "Indietro" di Osservatore/Seguimi: gestiti a mano da IndietroFeedback.
@@ -499,7 +522,6 @@ public class GameManager : MonoBehaviour
     // da modificare per tutta la UI (le label di scena restano il default).
     private const float FS_MENU = 42f;          // i 4 bottoni del menu
     private const float FS_RIPRESA = 60f;       // Riancora Pianoforte + Torna al Menu
-    private const float FS_GENERA_REPORT = 55f; // Genera Report Finale
     // I "Bottone-Indietro" di Osservatore/Seguimi vivono in gruppi scalati x4:
     // per apparire uguali al "Torna al Menu" (x1) il valore locale deve essere
     // FS_RIPRESA / 4.
@@ -516,7 +538,9 @@ public class GameManager : MonoBehaviour
         // Riferimento di tutti i "Torna al Menu": CopiaStileBottoneTorna() deriva
         // da questo anche Tutorial e i due "Bottone-Indietro".
         ImpostaFontSizeFigli(faiTuGroup, "TornaAlMen\u00F9", FS_RIPRESA);
-        ImpostaFontSizeFigli(faiTuGroup, "GeneraReport", FS_GENERA_REPORT);
+
+        // "Genera Report" e' nel menu: stessa dimensione degli altri bottoni.
+        ImpostaFontSizeFigli(menuGroup, "GeneraReport", FS_MENU);
 
         // CopiaStileBottoneTorna() gira PRIMA di questo metodo e copierebbe quindi
         // il valore di scena (72): va reimposto anche il bottone del tutorial.
@@ -604,6 +628,79 @@ public class GameManager : MonoBehaviour
         GlowBottone.Applica(target.gameObject);
     }
 
+    // Colore "spento" del bottone Genera Report senza materiale: la stessa Tan
+    // schiarita verso il bianco, cosi' resta nella palette ma non sembra attivo.
+    private static readonly Color SpentoReport = new Color(0.8941f, 0.8353f, 0.7725f, 1f); // #e5d5c6
+
+    // Chiamato da UdpReceiver quando il bridge risponde a "get_report_status":
+    // true = c'e' materiale (note Fai Tu o esecuzioni Seguimi) -> bottone attivo.
+    public void StatoReportRicevuto(bool hasMaterial)
+    {
+        reportDisponibile = hasMaterial;
+        ApplicaAspettoGeneraReport();
+    }
+
+    // Aspetto del bottone "Genera Report" nel menu: Tan pieno ed interattivo con
+    // materiale, Tan schiarita e non cliccabile senza. IndietroFeedback disabilitato
+    // per evitare hover/grow, glow nascosto e etichetta attenuata.
+    private void ApplicaAspettoGeneraReport()
+    {
+        if (bottoneGeneraReport == null) return;
+
+        Image img = bottoneGeneraReport.GetComponent<Image>();
+        TextMeshProUGUI label = bottoneGeneraReport.GetComponentInChildren<TextMeshProUGUI>(true);
+        IndietroFeedback fb = bottoneGeneraReport.GetComponent<IndietroFeedback>();
+
+        if (reportDisponibile)
+        {
+            bottoneGeneraReport.interactable = true;
+            if (fb != null) fb.enabled = true;
+            if (img != null) img.color = TanColor;
+            if (label != null) label.color = Color.black;
+            SetGlowGeneraReport(true);
+        }
+        else
+        {
+            bottoneGeneraReport.interactable = false;
+            // Prima disattivo il feedback: il suo OnDisable riporta l'Image al colore
+            // di riposo (Tan) e va chiamato PRIMA di applicare il colore spento.
+            if (fb != null) fb.enabled = false;
+            if (img != null) img.color = SpentoReport;
+            if (label != null) label.color = new Color(0f, 0f, 0f, 0.55f);
+            SetGlowGeneraReport(false);
+        }
+    }
+
+    // Il glow del bottone e' un figlio "Glow" con CanvasGroup pilotato ogni frame
+    // dal componente GlowBottone: per nasconderlo davvero va disattivato il
+    // componente (ferma l'Update che lo riporta ad alphaRiposo) e azzerata
+    // l'alpha del CanvasGroup subito dopo. Riattivandolo, OnEnable ripristina il
+    // respiro di riposo come sugli altri bottoni del menu.
+    private void SetGlowGeneraReport(bool visibile)
+    {
+        if (bottoneGeneraReport == null) return;
+
+        GlowBottone glow = bottoneGeneraReport.GetComponent<GlowBottone>();
+        CanvasGroup cg = null;
+        foreach (Transform figlio in bottoneGeneraReport.transform)
+        {
+            if (figlio.name == "Glow") { cg = figlio.GetComponent<CanvasGroup>(); break; }
+        }
+        if (glow == null) return;
+
+        if (visibile)
+        {
+            glow.enabled = true;
+        }
+        else
+        {
+            glow.enabled = false;
+            // Dopo OnDisable l'alpha resta sul valore di riposo: la azzeriamo per
+            // nascondere subito il glow (il componente disattivato non la tocca piu').
+            if (cg != null) cg.alpha = 0f;
+        }
+    }
+
     // I pannelli "Sfondo" (Tutorial e banner FaiTu) sono Steel Blue: e' l'unico
     // blu della palette e si stacca sia sul nero sia dietro ai bottoni Tan.
     private static void ColoraPannelli(GameObject gruppo)
@@ -666,6 +763,54 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    // Il bottone "Genera Report" sta in scena dentro GruppoFaiTu (x -500, y 250,
+    // 400x200): lo spostiamo a runtime nel menu e compattiamo la colonna a 5 bottoni
+    // (stesso passo 190 e stessa dimensione degli altri). Il Button e l'onClick della
+    // scena restano validi dopo il re-parenting. Prima di IngrandisciBottoniUI(),
+    // cosi' la scala 1.15 del menu lo tratta come tutti gli altri.
+    private void SpostaGeneraReportInMenu()
+    {
+        if (menuGroup == null || faiTuGroup == null) return;
+
+        ImpostaPosizioneMenu("Bottone Tutorial", 380f);
+        ImpostaPosizioneMenu("Bottone Osservatore", 190f);
+        ImpostaPosizioneMenu("Bottone Seguimi", 0f);
+        ImpostaPosizioneMenu("Bottone Fai Tu", -190f);
+
+        Transform genera = TrovaFiglio(faiTuGroup, "GeneraReport");
+        if (genera == null) return;
+
+        genera.SetParent(menuGroup.transform, false);
+
+        RectTransform rt = genera as RectTransform;
+        if (rt != null)
+        {
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(400f, 100f);
+            rt.anchoredPosition = new Vector2(0f, -380f);
+        }
+
+        bottoneGeneraReport = genera.GetComponent<Button>();
+        // In attesa della conferma del bridge il bottone parte spento: il default
+        // e' "niente materiale" piuttosto che un bottone attivo per errore.
+        reportDisponibile = false;
+        ApplicaAspettoGeneraReport();
+    }
+
+    private void ImpostaPosizioneMenu(string nome, float y)
+    {
+        Transform b = TrovaFiglio(menuGroup, nome);
+        if (b == null) return;
+        RectTransform rt = b as RectTransform;
+        if (rt == null) return;
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(0f, y);
+    }
+
     private void IngrandisciBottoniUI()
     {
         if (menuGroup != null)
@@ -678,15 +823,10 @@ public class GameManager : MonoBehaviour
         {
             foreach (Transform figlio in faiTuGroup.transform)
             {
-                if (figlio.name == "TornaAlMen\u00F9" || figlio.name == "GeneraReport")
+                if (figlio.name == "TornaAlMen\u00F9")
                 {
                     RectTransform rt = (RectTransform)figlio;
                     rt.sizeDelta = new Vector2(460f, 230f);
-                    // "Genera Report Finale" scende sotto la posizione di scena
-                    // (y 250): sta piu' in basso per staccarlo dal pannello delle
-                    // istruzioni centrale, senza toccare "Torna al Menu".
-                    if (figlio.name == "GeneraReport")
-                        rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, 150f);
                     ApplicaStileTesto(figlio.GetComponentInChildren<TextMeshProUGUI>(true));
                 }
             }
@@ -771,6 +911,14 @@ public class GameManager : MonoBehaviour
         if (calibrationGroup != null) calibrationGroup.SetActive(statoAttuale == AppState.Onboarding);
         if (menuGroup != null) menuGroup.SetActive(statoAttuale == AppState.Menu);
 
+        // All'ingresso del menu chiediamo al bridge se c'e' materiale per il report:
+        // finche' non risponde, il bottone "Genera Report" resta spento.
+        if (statoAttuale == AppState.Menu && udpReceiver != null)
+        {
+            ApplicaAspettoGeneraReport();
+            udpReceiver.InviaComandoRichiediStatoReport();
+        }
+
         bool introduzioneConBanner =
             statoAttuale == AppState.Tutorial ||
             statoAttuale == AppState.Osservatore ||
@@ -802,10 +950,49 @@ public class GameManager : MonoBehaviour
 
             if (statoAttuale == AppState.FaiTu)
             {
-                if (udpReceiver != null) udpReceiver.InviaComandoStartFaiTu();
-                faiTuBannerCoroutine = StartCoroutine(MostraBannerFaiTuTemporaneo());
+                // Prima "start_fai_tu" (con attesa del bridge se serve), poi il banner.
+                faiTuBannerCoroutine = StartCoroutine(AvviaFaiTuDopoBridgePronto());
             }
         }
+    }
+
+    // All'avvio (o riavvio) il bridge Python impiega qualche secondo a partire:
+    // scansiona i brani, inizializza il MIDI e solo dopo lega la porta UDP che riceve
+    // i comandi. Se mandiamo "start_fai_tu" prima che il bridge sia in ascolto il
+    // pacchetto cade e la registrazione Fai Tu parte spenta: le note vengono
+    // comunque inoltrate a Unity (colonne visibili) ma NON registrate. Per questo il
+    // comando parte SOLO quando il bridge conferma di essere pronto (stesso approccio
+    // dell'attesa del tutorial prima di "play_example"), con un tetto di 30s.
+    private IEnumerator AvviaFaiTuDopoBridgePronto()
+    {
+        if (udpReceiver == null) yield break;
+
+        if (!udpReceiver.BridgePronto)
+        {
+            TextMeshProUGUI bannerTesto = faiTuBannerMessaggio != null
+                ? faiTuBannerMessaggio.GetComponentInChildren<TextMeshProUGUI>(true)
+                : null;
+            string testoOriginale = bannerTesto != null ? bannerTesto.text : null;
+            if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(true);
+            if (bannerTesto != null) bannerTesto.text = "Connessione alla tastiera in corso...";
+
+            float scadenza = Time.time + 30f;
+            while (!udpReceiver.BridgePronto && Time.time < scadenza)
+            {
+                yield return null;
+            }
+
+            // Il banner standard (MostraBannerFaiTuTemporaneo) mostra il testo di
+            // scena: glielo ripristiniamo se l'attesa l'aveva sostituito.
+            if (bannerTesto != null && testoOriginale != null) bannerTesto.text = testoOriginale;
+            if (faiTuBannerMessaggio != null) faiTuBannerMessaggio.SetActive(false);
+        }
+
+        // "start_fai_tu" e' idempotente (azzera e riavvia la registrazione): inviarlo
+        // una sola volta a bridge pronto basta.
+        if (udpReceiver != null) udpReceiver.InviaComandoStartFaiTu();
+
+        yield return StartCoroutine(MostraBannerFaiTuTemporaneo());
     }
 
     // --- PANNELLO DI SPIEGAZIONE ALL'INGRESSO DI UNA MODALITA' ---
@@ -1361,11 +1548,26 @@ public class GameManager : MonoBehaviour
 
     public void GeneraReportPDF()
     {
+        // Difesa in piu' (il bottone e' gia' disattivato senza materiale).
+        if (!reportDisponibile) return;
+
+        // Durante la generazione e la visione del report il menu resta nascosto:
+        // si vedono solo il banner, il viewer e lo sfondo nero della camera.
+        if (menuGroup != null) menuGroup.SetActive(false);
+
         NascondiViewerReport();
         if (udpReceiver != null) udpReceiver.InviaComandoGeneraReport();
 
         if (reportFeedbackCoroutine != null) StopCoroutine(reportFeedbackCoroutine);
         reportFeedbackCoroutine = StartCoroutine(MostraInCorsoPoiTimeout());
+    }
+
+    // Riporta in vista il menu alla fine del flusso report. Qui NON va usata
+    // AttivaMenu(): lo stato e' gia' Menu e CambiaStato esce subito (early-return
+    // su stato identico), lasciando il menu spento come l'avevamo nascosto.
+    private void RivelaMenuDopoReport()
+    {
+        if (menuGroup != null) menuGroup.SetActive(true);
     }
 
     // Mentre Python genera il PDF (e i PNG delle pagine) resta fermo un messaggio
@@ -1381,8 +1583,7 @@ public class GameManager : MonoBehaviour
         yield return new WaitForSeconds(3.5f);
 
         NascondiBannerModalita();
-
-        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+        RivelaMenuDopoReport();
     }
 
     // Chiamato da UdpReceiver quando il bridge conferma ("report_ready") che il
@@ -1396,9 +1597,13 @@ public class GameManager : MonoBehaviour
         }
         NascondiBannerModalita();
 
-        // Il report parte da FaiTu: se nel frattempo si e' cambiata modalita',
-        // il viewer non va mostrato.
-        if (statoAttuale != AppState.FaiTu) return;
+        // Il report parte dal menu: se nel frattempo si e' cambiata modalita',
+        // il viewer non va mostrato e si torna al menu visibile.
+        if (statoAttuale != AppState.Menu)
+        {
+            RivelaMenuDopoReport();
+            return;
+        }
 
         CaricaPagineReport(cartella, pagine);
         if (pagineReport.Count == 0)
@@ -1426,7 +1631,7 @@ public class GameManager : MonoBehaviour
         MostraBannerReport("Report non trovato.\nCerca Report_Completo_Nora.pdf nella cartella Sessione...");
         yield return new WaitForSeconds(3.5f);
         NascondiBannerModalita();
-        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+        RivelaMenuDopoReport();
     }
 
     private void CaricaPagineReport(string cartella, int pagine)
@@ -1502,13 +1707,13 @@ public class GameManager : MonoBehaviour
         reportFeedbackCoroutine = StartCoroutine(MostraMessaggioReportTornaMenu());
     }
 
-    // Su Chiudi: la scritta di conferma, poi il ritorno automatico al Menu.
+    // Su Chiudi: prima il pannello di conferma su sfondo nero, poi il menu ricompare.
     private IEnumerator MostraMessaggioReportTornaMenu()
     {
         MostraBannerReport("Lo trovi sulla cartella Sessioni insieme alla registrazione della tua esecuzione.");
         yield return new WaitForSeconds(3.5f);
         NascondiBannerModalita();
-        if (statoAttuale == AppState.FaiTu) AttivaMenu();
+        RivelaMenuDopoReport();
     }
 
     private void NascondiViewerReport()

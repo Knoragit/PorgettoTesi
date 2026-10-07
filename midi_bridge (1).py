@@ -22,7 +22,7 @@ from matplotlib import font_manager
 from matplotlib.backends.backend_pdf import PdfPages
 
 # ==========================================
-# CONFIGURAZIONE RETE UDP & FILE
+# UDP NETWORK & FILE CONFIGURATION
 # ==========================================
 UDP_IP = "127.0.0.1"
 PORT_TO_UNITY = 5005
@@ -41,21 +41,21 @@ if not os.path.exists(CANZONI_PATH):
     os.makedirs(CANZONI_PATH)
 
 # ==========================================
-# FONT DEI PDF: Raleway, lo stesso dell'app Unity
+# PDF FONT: Raleway, the same one used by the Unity app
 # ==========================================
-# matplotlib non conosce i font installati nelle app: va registrato a mano il file
-# TTF, altrimenti i report escono con DejaVu Sans. Si prende Raleway/static perche'
-# contiene sia il Regular sia il Bold (serve per i titoli con fontweight='bold');
-# Resources/Fonts/ dell'app ha solo il Regular.
-# Il nome famiglia non viene indovinato: si legge dal file, cosi' regge anche se il
-# font venisse rigenerato. Se manca, si avvisa e si resta con il default: il report
-# deve uscire comunque.
+# matplotlib does not know the fonts installed in apps: the TTF file must be
+# registered manually, otherwise reports would come out with DejaVu Sans. Raleway/static
+# is used because it contains both Regular and Bold (titles use fontweight='bold');
+# Resources/Fonts/ of the app only has Regular.
+# The family name is not guessed: it is read from the file itself, so it also holds if
+# the font were regenerated. If it is missing, a warning is shown and the default font
+# is kept: the report must be produced anyway.
 #
-# "font.family" e' una LISTA per il fallback: Raleway e' un font Latin e non
-# contiene la freccia U+2192 (usata in tutti i commenti del riquadro valutazione,
-# "-> tocco piu' leggero..."). Senza il fallback matplotlib metterebbe un
-# quadratino al posto della freccia, quindi dietro Raleway si lascia DejaVu Sans,
-# che ha i simboli mancanti.
+# "font.family" is a LIST for fallback: Raleway is a Latin font and does not
+# contain the arrow U+2192 (used in all the evaluation box comments,
+# "-> tocco piu' leggero..."). Without the fallback matplotlib would render a
+# missing-glyph box instead of the arrow, so DejaVu Sans is kept behind Raleway,
+# since it has the missing symbols.
 RALWAY_DIR = os.path.join(DESKTOP_PATH, "Raleway", "static")
 try:
     _ral_regular = os.path.join(RALWAY_DIR, "Raleway-Regular.ttf")
@@ -71,15 +71,16 @@ try:
 except Exception as e:
     print(f"[FONT] Impossibile registrare Raleway ({e}): i PDF useranno il font di default.")
 
-# Numero massimo di risultati scaricati e salvati per ogni ricerca online
+# Maximum number of results downloaded and saved for each online search
 MAX_RESULTS = 4
 
 # ==========================================
-# CONFIGURAZIONE DATABASE LOCALE (SQLite)
+# LOCAL DATABASE CONFIGURATION (SQLite)
 # ==========================================
 DB_PATH = os.path.join(DESKTOP_PATH, "nora_database.db")
 
 def init_db():
+    """Creates the local SQLite database, creating (and migrating) the 'midi_files' table."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS midi_files
@@ -88,9 +89,9 @@ def init_db():
                   filename TEXT UNIQUE,
                   title TEXT,
                   artist TEXT)''')
-    # Migrazione: la versione precedente aveva UNIQUE su query, che impediva
-    # di salvare più risultati per la stessa ricerca. Se rilevato, ricrea la
-    # tabella con UNIQUE su filename e copia i dati esistenti.
+    # Migration: the previous version had UNIQUE on query, which prevented
+    # saving more than one result for the same search. If detected, the table
+    # is recreated with UNIQUE on filename and the existing data is copied over.
     sql = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='midi_files'").fetchone()
     old_schema = bool(sql) and re.search(r'query[^,\n]*UNIQUE', sql[0], re.IGNORECASE)
     if old_schema:
@@ -111,10 +112,10 @@ def init_db():
 init_db()
 
 # ==========================================
-# MOTORE DI RICERCA ED ANALISI MIDI
+# MIDI SEARCH AND ANALYSIS ENGINE
 # ==========================================
 def has_piano_track(filepath):
-    """Verifica se il file MIDI contiene tracce/programmi associati al pianoforte."""
+    """Checks whether the MIDI file contains tracks/programs associated with the piano."""
     try:
         mid = mido.MidiFile(filepath)
         program_changes_seen = False
@@ -122,12 +123,12 @@ def has_piano_track(filepath):
         for msg in mid:
             if msg.type == 'program_change':
                 program_changes_seen = True
-                # General MIDI: Program da 0 a 7 identificano la famiglia dei Pianoforti
+                # General MIDI: programs 0 to 7 identify the piano family
                 if 0 <= msg.program <= 7:
                     return True
                     
-        # Se non ci sono istruzioni 'program_change', lo standard MIDI assegna
-        # di default il suono del pianoforte (Program 0)
+        # If there are no 'program_change' events, the MIDI standard assigns
+        # the default piano sound (Program 0)
         if not program_changes_seen:
             return True
             
@@ -137,9 +138,9 @@ def has_piano_track(filepath):
         return False
 
 def is_midi_safe_for_visualizer(filepath):
-    """Rifiuta i MIDI 'a martello' (rip da videogame/sequencer) che saturano
-    il visualizer: troppe note diverse ripremute senza tregua fanno sembrare
-    tutti i tasti premuti e 'bloccati'. Ritorna (ok, motivo)."""
+    """Rejects "hammer" MIDI files (rips from games/sequencers) that saturate the
+    visualizer: too many different notes relentlessly re-pressed make every key look
+    pressed and "stuck". Returns (ok, reason)."""
     try:
         mid = mido.MidiFile(filepath)
         pitches = set()
@@ -199,7 +200,7 @@ def extract_song_metadata(html):
 
     return title, artist
 def freemidi_search_candidates(query, max_results=MAX_RESULTS):
-    """Estrae fino a max_results link candidati dalla pagina di ricerca freemidi.org."""
+    """Extracts up to max_results candidate links from the freemidi.org search page."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -213,7 +214,7 @@ def freemidi_search_candidates(query, max_results=MAX_RESULTS):
         if resp.status_code != 200:
             return []
 
-        # 2. Parse download3-{id}-{slug} links from the results (ordine pagina)
+        # 2. Parse download3-{id}-{slug} links from the results (page order)
         links = list(dict.fromkeys(re.findall(r'download3-\d+-[\w-]+', resp.text)))
         return links[:max_results]
 
@@ -223,7 +224,7 @@ def freemidi_search_candidates(query, max_results=MAX_RESULTS):
     return []
 
 def download_freemidi_candidate(slug):
-    """Scarica un singolo candidato da freemidi.org. Ritorna la tupla o None."""
+    """Downloads a single candidate from freemidi.org. Returns the tuple or None."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -258,7 +259,7 @@ def download_freemidi_candidate(slug):
     return None
 
 def bitmidi_search_candidates(query, max_results=MAX_RESULTS):
-    """Best-effort: estrae i link candidati dalla pagina di ricerca di bitmidi.com."""
+    """Best-effort: extracts candidate links from the bitmidi.com search page."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -268,7 +269,7 @@ def bitmidi_search_candidates(query, max_results=MAX_RESULTS):
         resp = session.get(search_url, headers=headers, timeout=12)
         if resp.status_code != 200:
             return []
-        # Link pagina brano: slug che terminano con -mid (ordine di pagina)
+        # Song page links: slugs ending with -mid (page order)
         hrefs = re.findall(r'href="(/[^"]*-mid)"', resp.text)
         candidates = []
         for h in hrefs:
@@ -280,7 +281,7 @@ def bitmidi_search_candidates(query, max_results=MAX_RESULTS):
     return []
 
 def download_bitmidi_candidate(page_url):
-    """Scarica il primo link .mid trovato nella pagina del brano bitmidi.com."""
+    """Downloads the first .mid link found in the bitmidi.com song page."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -316,7 +317,7 @@ def download_bitmidi_candidate(page_url):
     return None
 
 def download_validated_candidates(candidates, downloader):
-    """Scarica i candidati in parallelo, filtrando quelli con parte pianoforte."""
+    """Downloads candidates in parallel, keeping only those with a piano part."""
     results = []
     if not candidates:
         return results
@@ -345,7 +346,7 @@ def download_validated_candidates(candidates, downloader):
     return results
 
 def handle_song_request(query):
-    """Gestisce l'intera pipeline di ricerca: DB Locale -> Online -> Filtro Piano -> Risposta UDP."""
+    """Runs the whole search pipeline: Local DB -> Online -> Piano Filter -> UDP reply."""
     clean_query = query.strip().lower()
     if not clean_query:
         return
@@ -354,7 +355,7 @@ def handle_song_request(query):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # 1. Controllo nel Database Locale (Cache)
+    # 1. Check the Local Database (Cache)
     c.execute("SELECT filename, title, artist FROM midi_files WHERE query=? ORDER BY id LIMIT 1", (clean_query,))
     row = c.fetchone()
     
@@ -367,14 +368,14 @@ def handle_song_request(query):
             conn.close()
             return
 
-    # 2. Ricerca sul Database Online: freemidi multi-risultato
+    # 2. Search the Online Database: freemidi multi-result
     print("[ONLINE] Ricerca su freemidi.org in corso...")
     results = download_validated_candidates(
         freemidi_search_candidates(clean_query),
         download_freemidi_candidate
     )
 
-    # 3. Fallback su bitmidi.com se freemidi non ha prodotto risultati validi
+    # 3. Fallback to bitmidi.com if freemidi produced no valid results
     if not results:
         print("[ONLINE] Nessun risultato freemidi valido, provo con bitmidi.com...")
         results = download_validated_candidates(
@@ -392,7 +393,7 @@ def handle_song_request(query):
         conn.close()
         return
 
-    # 4. Salvataggio nel DB locale di tutti i brani validati
+    # 4. Save all validated songs to the local DB
     for filepath, filename, title, artist in results:
         try:
             c.execute("INSERT OR IGNORE INTO midi_files (query, filename, title, artist) VALUES (?, ?, ?, ?)",
@@ -401,7 +402,7 @@ def handle_song_request(query):
             print(f"[DB] Errore salvataggio {filename}: {e}")
     conn.commit()
 
-    # 5. Risposta UDP con il primo brano valido (i suggerimenti mostreranno tutti)
+    # 5. UDP reply with the first valid song (suggestions will show all)
     filepath, filename, title, artist = results[0]
     print(f"[SUCCESS] Salvati {len(results)} brano/i per '{clean_query}', primo: {filename}")
     send_to_unity({"action": "search_result", "status": "success", "filename": filename, "title": title, "artist": artist})
@@ -409,12 +410,13 @@ def handle_song_request(query):
     conn.close()
 
 # ==========================================
-# GESTIONE PORTE MIDI
+# MIDI PORT HANDLING
 # ==========================================
 inport = None
 outport = None
 
 def select_physical_midi_port(port_names, is_output=False):
+    """Picks the first physical MIDI port, skipping virtual/loopback/through ones."""
     if not port_names:
         return None
     ignore_keywords = ["loopmidi", "virtual", "through"]
@@ -442,7 +444,7 @@ except Exception as e:
     print(f"[ERRORE MIDI] {e}")
 
 # ==========================================
-# STATO GLOBALE E STORICO SESSIONI
+# GLOBAL STATE AND SESSION HISTORY
 # ==========================================
 sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 send_lock = threading.Lock()
@@ -469,11 +471,13 @@ current_song_reference_notes = []
 history_follow_sessions = []
 
 def send_to_unity(data_dict):
+    """Sends a JSON message to Unity over UDP (thread-safe through a lock)."""
     msg = json.dumps(data_dict)
     with send_lock:
         sock_send.sendto(msg.encode('utf-8'), (UDP_IP, PORT_TO_UNITY))
 
 def get_note_color_rgb(note, velocity, hand=None):
+    """Returns an RGB tuple for a note (left hand cyan, right hand amber) based on velocity."""
     v = max(0.0, min(1.0, velocity))
     if hand is not None:
         is_left = (hand == "left")
@@ -485,6 +489,7 @@ def get_note_color_rgb(note, velocity, hand=None):
         return (1.0, 0.92 * (1.0 - v), 0.0)
 
 def parse_song_info(filename):
+    """Heuristically parses "Title - Artist" (or "Title-Artist") from a song filename."""
     name_without_ext = os.path.splitext(filename)[0].replace("_", " ")
     if " - " in name_without_ext:
         parts = name_without_ext.split(" - ", 1)
@@ -504,7 +509,7 @@ def get_song_list():
     conn.close()
     songs = []
     for rid, query, filename, title, artist in rows:
-        # Usa i metadati reali se presenti; il parsing euristico solo se assenti entrambi
+        # Use real metadata when present; heuristic parsing only if both are missing
         if not title and not artist:
             info = parse_song_info(filename)
             title, artist = info["title"], info["artist"]
@@ -531,7 +536,7 @@ def get_filename_by_id(song_id):
     return row[0] if row else None
 
 def scan_local_folder():
-    """Registra nel DB locale tutti i file .mid presenti nella cartella Canzoni."""
+    """Registers all .mid files found in the Songs folder into the local DB."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if not os.path.isdir(CANZONI_PATH):
@@ -564,7 +569,7 @@ def scan_local_folder():
     return aggiunti
 
 def suggest_songs(query, limit=20):
-    """Ricerca parziale (Live) nel DB locale per i suggerimenti mentre si digita."""
+    """Live partial search in the local DB for suggestions while typing."""
     clean = query.strip().lower()
     if not clean:
         return []
@@ -591,9 +596,10 @@ def suggest_songs(query, limit=20):
     return songs
 
 # ==========================================
-# SINTETIZZATORE AUDIO WAV
+# WAV AUDIO SYNTHESIZER
 # ==========================================
 def generate_wav_from_midi_notes(notes_list, output_filepath, sample_rate=44100):
+    """Synthesizes a WAV audio file from the given MIDI notes (sine + harmonic timbre)."""
     if not notes_list:
         print("[AUDIO WARN] Lista note vuota, genero un tono di test.")
         notes_list = [{"note": 60, "vel": 0.8, "start": 0.0, "end": 1.0}]
@@ -651,9 +657,10 @@ def generate_wav_from_midi_notes(notes_list, output_filepath, sample_rate=44100)
     print(f"[AUDIO SUCCESS] WAV generato ed udibile in: {output_filepath}")
 
 # ==========================================
-# CARICAMENTO BRANO TARGET
+# LOADING THE TARGET SONG
 # ==========================================
 def load_follow_sequence(filename):
+    """Loads a MIDI file and builds the chord sequence and reference notes for 'Seguimi' mode."""
     global follow_notes_sequence, follow_current_index, current_song_reference_notes, current_song_filename
     current_song_filename = filename
     filepath = os.path.join(CANZONI_PATH, filename)
@@ -705,6 +712,7 @@ def load_follow_sequence(filename):
     follow_current_index = 0
 
 def send_next_follow_step():
+    """Sends the next expected chord to Unity, or completes the 'Seguimi' session."""
     global follow_current_index, is_following
     if follow_current_index < len(follow_notes_sequence):
         chord_notes = list(dict.fromkeys(follow_notes_sequence[follow_current_index]))
@@ -716,9 +724,10 @@ def send_next_follow_step():
         print("[SEGUIMI] Brano completato!")
 
 # ==========================================
-# LISTENER MIDI INPUT
+# MIDI INPUT LISTENER
 # ==========================================
 def midi_input_loop():
+    """Watches the MIDI input port, forwards notes to Unity and records them in the active modes."""
     global is_recording_fai_tu, t_first_note_fai_tu, t_last_note_fai_tu
     if not inport:
         return
@@ -764,9 +773,10 @@ def midi_input_loop():
                         history_follow_sessions[-1]["user_notes"].append(note_obj)
 
 # ==========================================
-# RIPRODUZIONE OSSERVATORE
+# OBSERVER PLAYBACK
 # ==========================================
 def play_observing_thread(filename):
+    """Replays a song through the piano and streams its notes to Unity ('Observer' mode)."""
     global is_playing_observing, current_song_filename
     
     if is_playing_observing:
@@ -823,11 +833,12 @@ def play_observing_thread(filename):
         print(f"[PLAYING] Terminato o interrotto: {filename}")
 
 # ==========================================
-# ESEMPI TUTORIAL (riproduzione dimostrativa)
+# TUTORIAL EXAMPLES (demonstrative playback)
 # ==========================================
-# Ogni sfida mostra prima COME si esegue: le note partono sempre dal Do centrale
-# (MIDI 60). Gli esempi vengono inviati sia al piano (suono) sia a Unity (colonne).
+# Every challenge first shows HOW it should be played: notes always start from middle C
+# (MIDI 60). The examples are sent both to the piano (sound) and to Unity (columns).
 def play_tutorial_example(sfida):
+    """Plays the tutorial demonstration for the given challenge (1-4) on piano and streams it to Unity."""
     global is_playing_example
     if is_playing_observing or is_following:
         is_playing_example = False
@@ -836,8 +847,8 @@ def play_tutorial_example(sfida):
         return
 
     if sfida == 4:
-        # Legato (Do -> Mi): il Mi parte mentre il Do e' ancora tenuto, con
-        # due attacchi ben distinti nel tempo ("prima uno, poi l'altro").
+        # Legato (C -> E): the E starts while the C is still held, with
+        # two well-defined attacks apart in time ("first one, then the other").
         is_playing_example = True
         print(f"[ESEMPIO] Riproduzione esempio sfida {sfida}")
         try:
@@ -863,7 +874,7 @@ def play_tutorial_example(sfida):
             print("[ESEMPIO] Terminato")
         return
 
-    # (nota, velocity, durata_sec, pausa_sec)
+    # (note, velocity, duration_sec, pause_sec)
     if sfida == 1:
         sequenza = [(60, 0.18, 1.20, 0.10)]                       # Do centrale, tocco piano
     elif sfida == 2:
@@ -872,7 +883,7 @@ def play_tutorial_example(sfida):
                     (64, 0.45, 0.35, 0.40),
                     (65, 0.55, 0.35, 0.10)]
     elif sfida == 3:
-        # Staccato: Do, pausa ampia, Re (ben separati, niente effetto legato)
+        # Staccato: C, wide pause, D (well separated, no legato effect)
         sequenza = [(60, 0.50, 0.18, 0.40),
                     (62, 0.50, 0.15, 0.10)]
     else:
@@ -903,13 +914,13 @@ def play_tutorial_example(sfida):
         print("[ESEMPIO] Terminato")
 
 # ==========================================
-# GENERAZIONE REPORT PDF
+# PDF REPORT GENERATION
 # ==========================================
 last_report_time = 0
 
 
 def compute_radar_metrics(notes, is_ref=False):
-    """Calcola le 5 metriche dell'impronta digitale (stesse formule della modalita' Fai Tu)."""
+    """Computes the 5 fingerprint metrics (same formulas as the 'Fai Tu' mode)."""
     if not notes:
         return [0.5, 0.0, 0.5, 0.0, 0.5]
 
@@ -946,8 +957,8 @@ def compute_radar_metrics(notes, is_ref=False):
 
 
 def classifica_articolazione(notes):
-    """Classifica ogni nota come legato/staccato/medio in base al gap verso il prossimo onset.
-    Ritorna (conteggi, etichette in ordine di ingresso)."""
+    """Classifies each note as legato/staccato/medio based on the gap to the next onset.
+    Returns (counts, labels in input order)."""
     if not notes:
         return {"legato": 0, "staccato": 0, "medio": 0}, []
 
@@ -985,13 +996,13 @@ def classifica_articolazione(notes):
 
 
 def allinea_note(usr_notes, ref_notes, tol=0.35, ref_window=None):
-    """Appaia le note utente e riferimento per pitch, in ordine cronologico, usando il
-    tempo relativo (ciascuna serie normalizzata al proprio inizio). Nota: le note utente
-    sono su tempo di parete (time.time()), quelle di riferimento su tempo del file MIDI,
-    quindi il confronto deve avvenire su base relativa, non su onset assoluti.
-    Se viene indicato ref_window (secondi, su base relativa del riferimento), il confronto
-    considera solo le note target entro quel tratto: così "mancate" misura le note della
-    guida nel periodo effettivamente eseguito, non dell'intero brano."""
+    """Matches user and reference notes by pitch, chronologically, using relative time
+    (each series normalized to its own start). Note: user notes use wall-clock time
+    (time.time()), reference notes use MIDI file time, so the comparison must happen on
+    a relative basis, not on absolute onsets.
+    If ref_window is given (seconds, relative to the reference start), the comparison only
+    considers target notes within that span: "missed" then measures the guide notes in the
+    actually performed segment, not the whole song."""
     if not usr_notes or not ref_notes:
         return {"matched": 0, "missed": 0, "extra": 0, "vel_ratios": [], "dur_ratios": [], "onset_errors": []}
 
@@ -1054,7 +1065,16 @@ def allinea_note(usr_notes, ref_notes, tol=0.35, ref_window=None):
     }
 
 
+def has_report_material():
+    """Returns True if there is something to generate a report from: recorded
+    Fai Tu notes or at least one Follow-me session with user notes."""
+    if recorded_notes_fai_tu:
+        return True
+    return any(s.get("user_notes") for s in history_follow_sessions)
+
+
 def generate_unified_report():
+    """Builds the complete PDF report (chromagrams, evaluation, radar, guide) plus page PNGs."""
     global last_report_time
     now = time.time()
     
@@ -1204,7 +1224,7 @@ def generate_unified_report():
                 max_u_t = max((n["start"] - u_t0) for n in usr_notes)
                 time_limit = max(max_u_t + 1.5, 5.0)
 
-                # ═══ PAGINA 1: CROMAGRAMMI ═══
+                # ═══ PAGE 1: CHROMAGRAMS ═══
                 fig_crom = plt.figure(figsize=(8.5, 11))
                 fig_crom.text(0.5, 0.958,
                               f"ANALISI COMPARATIVA #{s_idx} · MODALITÀ SEGUIMI",
@@ -1259,7 +1279,7 @@ def generate_unified_report():
                 fig_crom.savefig(os.path.join(session_dir, f"pagina_{page_number}.png"), dpi=120)
                 plt.close(fig_crom)
 
-                # ═══ PAGINA 2: RADAR + TESTO + GUIDA ═══
+                # ═══ PAGE 2: RADAR + TEXT + GUIDE ═══
                 ref_vel_mean = float(np.mean([n["vel"] for n in ref_notes])) if ref_notes else 0.5
                 usr_vel_mean = float(np.mean([n["vel"] for n in usr_notes])) if usr_notes else 0.5
                 diff_vel = usr_vel_mean - ref_vel_mean
@@ -1340,7 +1360,7 @@ def generate_unified_report():
                     height_ratios=[0.25, 1.1, 1.8, 0.85],
                     left=0.12, right=0.88, top=0.90, bottom=0.05, hspace=0.42)
 
-                # Radar centrato
+                # Centered radar
                 gs_radar_row = gs_a[1].subgridspec(1, 3, width_ratios=[0.3, 1, 0.3], wspace=0.05)
                 ax_radar_cmp = fig_analisi.add_subplot(gs_radar_row[1], polar=True)
 
@@ -1366,7 +1386,7 @@ def generate_unified_report():
                                         fontsize=9.5, pad=14)
                 ax_radar_cmp.legend(loc='lower center', bbox_to_anchor=(0.5, -0.36), ncol=1, fontsize=6.5)
 
-                # Testo valutazione (full width)
+                # Evaluation text (full width)
                 ax_text = fig_analisi.add_subplot(gs_a[2])
                 ax_text.axis('off')
                 ax_text.text(0.0, 0.98, text_valutazione, transform=ax_text.transAxes,
@@ -1374,7 +1394,7 @@ def generate_unified_report():
                              bbox=dict(boxstyle='round', facecolor='#eef2f5',
                                        edgecolor='#c5d0d8', alpha=0.9))
 
-                # Guida impronta
+                # Fingerprint guide
                 ax_guida = fig_analisi.add_subplot(gs_a[3])
                 ax_guida.axis('off')
                 testo_guida = (
@@ -1403,9 +1423,10 @@ def generate_unified_report():
         print(f"[ERRORE PDF] {e}")
 
 # ==========================================
-# LISTENER UDP COMANDI DA UNITY
+# UDP LISTENER FOR COMMANDS FROM UNITY
 # ==========================================
 def udp_command_listener():
+    """Listens for JSON commands from Unity on the UDP port and dispatches them to the right handler."""
     global is_following, is_playing_observing, is_recording_fai_tu, is_playing_example
     
     sock_recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1416,8 +1437,8 @@ def udp_command_listener():
         print(f"[DETTAGLIO] {e}")
         return
     print(f"[UDP LISTENER] Avviato ed in ascolto sulla porta {PORT_FROM_UNITY}...")
-    # handshake: Unity aspetta questo segnale prima di inviare play_example, altrimenti
-    # il comando verrebbe spedito quando la porta non e' ancora in ascolto e andrebbe perso
+    # handshake: Unity waits for this signal before sending play_example, otherwise
+    # the command would be sent while the port is not yet listening and would be lost
     send_to_unity({"action": "bridge_ready"})
 
     while True:
@@ -1434,9 +1455,9 @@ def udp_command_listener():
                     fai_tu_nota_mano[int(nota)] = mano
                 continue
 
-            # heartbeat di Unity: serve a confermare che il ponte e' vivo e pronto,
-            # anche se e' gia' partito prima di Unity (il bridge_ready iniziale
-            # sarebbe stato perso). Risponde sempre, finche' il listener e' attivo.
+            # Unity heartbeat: confirms the bridge is alive and ready, even if it started
+            # before Unity (the initial bridge_ready would have been lost).
+            # Always replies as long as the listener is active.
             if action == "ping":
                 send_to_unity({"action": "bridge_ready"})
                 continue
@@ -1518,6 +1539,12 @@ def udp_command_listener():
             elif action == "generate_report":
                 is_recording_fai_tu = False
                 generate_unified_report()
+
+            elif action == "get_report_status":
+                fai_tu_count = len(recorded_notes_fai_tu)
+                sessions_with_notes = sum(1 for s in history_follow_sessions if s.get("user_notes"))
+                print(f"[REPORT STATUS] fai_tu_notes={fai_tu_count} sessions_with_notes={sessions_with_notes}")
+                send_to_unity({"action": "report_status", "has_material": has_report_material()})
 
             elif action == "search_song":
                 query = cmd.get("query", "")
